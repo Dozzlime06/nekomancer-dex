@@ -1,0 +1,36 @@
+node_modules
+dist
+.DS_Store
+server/public
+vite.config.ts.*
+*.tar.gz
+
+# Environment files with secrets
+.env
+.env.local
+.env.production
+.env.development
+.env*.local
+
+# Private keys and secrets
+*.pem
+*.key
+*private*key*
+wallet.json
+
+# Build artifacts that might contain sensitive info
+artifacts/
+out/
+cache/
+typechain-types/
+
+# Deployment scripts with potential secrets
+deploy-*.ts
+*-deploy.ts
+compile-deploy*.ts
+
+# Temporary files
+/tmp/
+*.log
+.replit
+replit.nix

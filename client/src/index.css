@@ -1,0 +1,250 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  /* Nekomancer Theme */
+  /* Base: Void Black */
+  --color-background: hsl(260 50% 3%); 
+  --color-foreground: hsl(140 20% 95%);
+
+  --color-card: hsl(260 40% 6%);
+  --color-card-foreground: hsl(140 20% 95%);
+
+  --color-popover: hsl(260 40% 6%);
+  --color-popover-foreground: hsl(140 20% 95%);
+
+  /* Primary: Monad Purple */
+  --color-primary: hsl(249 90% 70%);
+  --color-primary-foreground: hsl(0 0% 100%);
+
+  /* Secondary: Spirit Purple */
+  --color-secondary: hsl(270 60% 25%);
+  --color-secondary-foreground: hsl(270 20% 90%);
+
+  /* Muted */
+  --color-muted: hsl(260 30% 15%);
+  --color-muted-foreground: hsl(260 20% 60%);
+
+  /* Accent: Soul Blue */
+  --color-accent: hsl(190 100% 60%);
+  --color-accent-foreground: hsl(0 0% 0%);
+
+  --color-destructive: hsl(0 80% 40%);
+  --color-destructive-foreground: hsl(0 0% 100%);
+
+  --color-border: hsl(140 30% 15%);
+  --color-input: hsl(140 30% 15%);
+  --color-ring: hsl(140 100% 60%);
+
+  --color-chart-1: hsl(140 100% 60%);
+  --color-chart-2: hsl(270 80% 60%);
+  --color-chart-3: hsl(190 80% 60%);
+  --color-chart-4: hsl(300 60% 50%);
+  --color-chart-5: hsl(260 40% 40%);
+
+  --font-sans: 'Space Grotesk', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-display: 'Creepster', cursive;
+
+  --radius: 0.25rem;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+    background-image: 
+      linear-gradient(to bottom, transparent, rgba(0,0,0,0.8)),
+      radial-gradient(circle at 50% 0%, hsl(140 100% 50% / 0.05), transparent 60%),
+      url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%2310b981' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  }
+  
+  h1, h2, h3 {
+    @apply tracking-tight;
+  }
+}
+
+@layer utilities {
+  .text-glow {
+    text-shadow: 0 0 10px var(--color-primary);
+  }
+  .box-glow {
+    box-shadow: 0 0 20px -5px var(--color-primary);
+  }
+  .necro-border {
+    @apply border border-primary/30 hover:border-primary/60 transition-colors duration-300;
+  }
+  .glass-panel {
+    @apply bg-black/60 backdrop-blur-md border border-white/5;
+  }
+
+  /* New "Chip" Clip Path - Diagonal cuts on Top-Left and Bottom-Right */
+  .clip-path-cyber {
+    clip-path: polygon(
+      10px 0, 
+      100% 0, 
+      100% calc(100% - 10px), 
+      calc(100% - 10px) 100%, 
+      0 100%, 
+      0 10px
+    );
+  }
+  
+  .clip-path-cyber-left {
+    clip-path: polygon(
+      10px 0, 
+      100% 0, 
+      100% 100%, 
+      0 100%, 
+      0 10px
+    );
+  }
+
+  @keyframes shine {
+    0% { transform: translateX(-100%) skewX(-15deg); }
+    100% { transform: translateX(200%) skewX(-15deg); }
+  }
+  .animate-shine {
+    animation: shine 1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+
+  /* Cyber Input Styles */
+  .neko-input-wrapper {
+    @apply relative bg-black/40 border border-white/10 transition-all duration-300;
+    clip-path: polygon(
+      0 0, 
+      100% 0, 
+      100% calc(100% - 10px), 
+      calc(100% - 10px) 100%, 
+      0 100%
+    );
+  }
+  .neko-input-wrapper::before {
+    content: '';
+    @apply absolute top-0 left-0 w-2 h-2 border-t-2 border-l-2 border-primary opacity-50 transition-all duration-300;
+  }
+  .neko-input-wrapper::after {
+    content: '';
+    @apply absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-primary opacity-50 transition-all duration-300;
+  }
+  .neko-input-wrapper:hover {
+    @apply border-primary/40 bg-primary/5;
+  }
+  .neko-input-wrapper:hover::before,
+  .neko-input-wrapper:hover::after {
+    @apply w-full h-full opacity-100;
+  }
+  .neko-input-wrapper:focus-within {
+    @apply border-primary bg-primary/10;
+  }
+  
+  /* Cyber Button Styles */
+  .neko-button-primary {
+    @apply relative overflow-hidden bg-primary text-white font-bold uppercase tracking-widest border border-white/20 shadow-lg transition-all duration-300;
+    clip-path: polygon(
+      10px 0, 
+      100% 0, 
+      100% calc(100% - 10px), 
+      calc(100% - 10px) 100%, 
+      0 100%, 
+      0 10px
+    );
+  }
+  .neko-button-primary:hover {
+    @apply bg-primary/90 shadow-[0_0_30px_rgba(131,110,249,0.6)] scale-[1.02];
+  }
+  .neko-button-primary::before {
+    content: '';
+    @apply absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent translate-x-[-100%] skew-x-[-15deg] transition-transform duration-1000;
+  }
+  .neko-button-primary:hover::before {
+    @apply translate-x-[200%];
+    transition: transform 0.7s ease-in-out;
+  }
+
+  .neko-button-secondary {
+    @apply relative overflow-hidden bg-black/50 border border-primary/50 text-primary hover:text-white hover:bg-primary/20 font-bold uppercase tracking-wider transition-all duration-300;
+  }
+  /* Lightning Tab Styles */
+  .neko-tab-trigger {
+    @apply relative flex-1 h-full flex items-center justify-center font-mono text-sm uppercase tracking-wider font-bold transition-all duration-300 z-10;
+    background: rgba(0, 0, 0, 0.4);
+    /* Border handled by parent or overlay due to clip-path */
+  }
+  .neko-tab-trigger[data-state="active"] {
+    @apply bg-primary text-white shadow-[0_0_20px_rgba(131,110,249,0.3)];
+  }
+  .neko-tab-trigger:hover:not([data-state="active"]) {
+    @apply bg-white/5;
+  }
+
+  /* Left Tab Clip: Zigzag matching lightning / \ / */
+  .neko-tab-left {
+    clip-path: polygon(
+      0 0, 
+      100% 0, 
+      calc(100% - 15px) 43%, 
+      100% 50%, 
+      calc(100% - 15px) 100%, 
+      0 100%
+    );
+    /* Ensure it sits on top of the negative margin overlap correctly */
+  }
+
+  /* Right Tab Clip: Zigzag matching lightning / \ / */
+  .neko-tab-right {
+    clip-path: polygon(
+      15px 0, 
+      100% 0, 
+      100% 100%, 
+      0 100%, 
+      15px 50%, 
+      0 43%
+    );
+  }
+
+  /* Lightning Divider - creates a jagged line between tabs */
+  .lightning-divider {
+    @apply absolute top-0 bottom-0 w-8 z-20 pointer-events-none;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--color-background); /* Match parent background to hide overlap */
+    clip-path: polygon(
+      40% 0%, 
+      60% 0%, 
+      30% 40%, 
+      70% 60%, 
+      40% 100%, 
+      20% 100%, 
+      50% 60%, 
+      10% 40%
+    );
+  }
+  /* Actual lightning stroke */
+  .lightning-stroke {
+    @apply absolute top-0 bottom-0 w-8 z-30 pointer-events-none;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--color-primary);
+    clip-path: polygon(
+      42% 0%, 
+      58% 0%, 
+      32% 38%, 
+      72% 58%, 
+      42% 100%, 
+      22% 100%, 
+      52% 58%, 
+      12% 38%
+    );
+    box-shadow: 0 0 10px var(--color-primary);
+  }
+}

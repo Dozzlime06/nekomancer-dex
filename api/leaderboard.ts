@@ -36,10 +36,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       rank: index + 1,
       walletAddress: row.wallet_address,
       swapCount: parseInt(row.swap_count),
-      totalVolume: parseFloat(row.total_volume) || 0,
+      totalVolumeMon: parseFloat(row.total_volume) || 0,
     }));
 
-    return res.status(200).json({ leaderboard });
+    const totalVolume = leaderboard.reduce((sum, entry) => sum + entry.totalVolumeMon, 0);
+    const totalSwappers = leaderboard.length;
+
+    return res.status(200).json({ leaderboard, totalVolume, totalSwappers });
   } catch (error: any) {
     console.error('Leaderboard error:', error);
     return res.status(500).json({ error: error.message, leaderboard: [] });

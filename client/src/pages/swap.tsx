@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowDownUp, ChevronDown, Loader, AlertCircle, Search, Copy, X, Settings, Check, ExternalLink, TrendingUp, TrendingDown, Zap, Lock, Wallet, Menu, LogOut } from "lucide-react";
+import { ArrowDownUp, ChevronDown, Loader, AlertCircle, Search, Copy, X, Settings, Check, ExternalLink, TrendingUp, TrendingDown, Zap, Lock, Wallet, Menu, LogOut, Gift } from "lucide-react";
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import { getWalletAddress, sendTransactionWithValue, sendTransactionViaProvider,
 import { 
   SWAP_AGGREGATOR_ADDRESS, 
   WMON_ADDRESS,
+  NADFUN_DEX_ROUTER,
   getSwapFunctionData,
   isNativeMON,
   isWMON,
@@ -58,11 +59,32 @@ export default function Swap() {
   const [slippage, setSlippage] = useState<number>(DEFAULT_SLIPPAGE);
   const [customSlippage, setCustomSlippage] = useState<string>("");
   const [showSettings, setShowSettings] = useState(false);
+  const [autoSlippage, setAutoSlippage] = useState<boolean>(true); // Auto dynamic slippage enabled by default
   const [protocolFee] = useState<number>(0.3); // 0.3% protocol fee
   const [priceImpact, setPriceImpact] = useState<string>("0");
   const [swapStatus, setSwapStatus] = useState<'idle' | 'approving' | 'swapping' | 'success' | 'error'>('idle');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [directWallet, setDirectWallet] = useState<{ address: string; provider: any } | null>(null);
+  const [referrer, setReferrer] = useState<string | null>(null);
+
+  // Detect referral code from URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const refCode = params.get('ref');
+    if (refCode) {
+      // Fetch referrer address from referral code
+      fetch(`/api/referral/lookup?code=${refCode}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.referrerWallet && data.referrerWallet !== '0x0000000000000000000000000000000000000000') {
+            setReferrer(data.referrerWallet);
+            console.log('[SWAP] Referrer detected:', data.referrerWallet, 'from code:', refCode);
+            toast.success(`Referral applied from ${refCode}`);
+          }
+        })
+        .catch(err => console.error('[SWAP] Failed to lookup referral code:', err));
+    }
+  }, []);
 
   // Privy hooks - must be called unconditionally at top level
   const { ready: privyReady, authenticated: privyAuthenticated, login: privyLogin, logout: privyLogout } = usePrivy();
@@ -145,6 +167,23 @@ export default function Swap() {
   };
 
   const activeWallet = getActiveWallet();
+
+  // Calculate effective slippage - auto or manual
+  const getEffectiveSlippage = (): number => {
+    if (autoSlippage) {
+      // Dynamic slippage based on price impact + buffer
+      // Minimum 2% for Nad.Fun/volatile tokens, otherwise calculated from impact
+      const impact = Math.abs(parseFloat(priceImpact) || 0);
+      const isNadFunToken = fromToken?.address?.toLowerCase().endsWith('7777') || 
+                            toToken?.address?.toLowerCase().endsWith('7777');
+      const minSlippage = isNadFunToken ? 3 : 1; // Higher minimum for Nad.Fun tokens
+      const calculated = Math.max(minSlippage, Math.ceil(impact + 1.5)); // Impact + 1.5% buffer
+      return Math.min(calculated, 15); // Cap at 15%
+    }
+    return slippage;
+  };
+
+  const effectiveSlippage = getEffectiveSlippage();
 
   // Track if initial load is done
   const [hasInitialized, setHasInitialized] = useState(false);
@@ -246,8 +285,8 @@ export default function Swap() {
       try {
         setSwapLoading(true);
         
-        // Use pathfinder for optimal split routing
-        const slippageBps = Math.floor(slippage * 100);
+        // Use pathfinder for optimal split routing with effective slippage (auto or manual)
+        const slippageBps = Math.floor(effectiveSlippage * 100);
         const response = await fetch('/api/swap/pathfinder', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -325,7 +364,7 @@ export default function Swap() {
 
     const debounceTimer = setTimeout(fetchQuotes, 500);
     return () => clearTimeout(debounceTimer);
-  }, [fromToken, toToken, fromAmount, slippage]);
+  }, [fromToken, toToken, fromAmount, effectiveSlippage]);
 
   // Note: toAmount is now set ONLY by the quote fetch, not by price calculation
   // This ensures "what you see = what you get" - display matches actual swap output
@@ -426,28 +465,76 @@ export default function Swap() {
       const tokenInAddress = fromToken.address as Address;
       const tokenOutAddress = toToken.address as Address;
 
+      const monToken = tokens.find((t: any) => 
+        t.symbol === 'MON' || t.address.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+      );
+      const monPriceUSD = monToken?.price || 0.04;
+      const effectiveFromPrice = fromPrice && fromPrice > 0 ? fromPrice : 0.0001;
+
+      // Build swap data FIRST to determine approval target
+      const isV3Swap = bestDex.includes("V3");
+      const swapParams = {
+        tokenIn: tokenInAddress,
+        tokenOut: tokenOutAddress,
+        amountIn,
+        minAmountOut,
+        deadline,
+        fromTokenPriceUSD: effectiveFromPrice,
+        monPriceUSD,
+        fromTokenDecimals: decimals,
+        dex: bestDex,
+        isV3: isV3Swap,
+        v3Fee: bestV3Fee,
+        userAddress: userAddress as Address,
+        routes: splitRoutes,
+        referrer: referrer as Address | undefined,
+      };
+      console.log('[SWAP] Params:', {
+        ...swapParams,
+        amountIn: swapParams.amountIn.toString(),
+        minAmountOut: swapParams.minAmountOut.toString(),
+        deadline: swapParams.deadline.toString(),
+        isV3: isV3Swap,
+        v3Fee: bestV3Fee,
+      });
+      
+      const swapResult = getSwapFunctionData(swapParams);
+      const { data, value, targetContract, approvalTarget: swapApprovalTarget } = swapResult;
+      
+      console.log('[SWAP] Result:', { 
+        data: data.slice(0, 20) + '...', 
+        value: value.toString(), 
+        targetContract,
+        swapApprovalTarget
+      });
+
       if (!isNativeMON(tokenInAddress)) {
-        // Set approval target based on which contract will execute the swap
-        let targetAddress: Address;
-        if (isWMON(tokenOutAddress) && isWMON(tokenInAddress)) {
-          targetAddress = WMON_ADDRESS;
+        // Use approval target from swap result (V29: Nad.Fun uses direct router)
+        // Fall back to WMON or Aggregator if not specified
+        let approvalTarget: Address;
+        if (swapApprovalTarget) {
+          approvalTarget = swapApprovalTarget;
+        } else if (isWMON(tokenOutAddress) && isWMON(tokenInAddress)) {
+          approvalTarget = WMON_ADDRESS;
         } else {
-          // All swaps (including nadfun) go through SwapAggregatorV6
-          targetAddress = SWAP_AGGREGATOR_ADDRESS;
+          approvalTarget = SWAP_AGGREGATOR_ADDRESS;
         }
 
+        console.log('[APPROVAL] Checking allowance for', tokenInAddress, 'spender:', approvalTarget);
         setSwapStatus('approving');
         const allowance = await checkAllowance(
           provider,
           tokenInAddress,
           userAddress,
-          targetAddress
+          approvalTarget
         );
+        console.log('[APPROVAL] Current allowance:', allowance.toString(), 'needed:', amountIn.toString());
 
         if (allowance < amountIn) {
+          console.log('[APPROVAL] Need to approve!');
           toast.loading(`Approving ${fromToken.symbol}...`, { id: 'approval' });
           const approveData = encodeApproveData(
-            targetAddress,
+            approvalTarget,
             amountIn * 2n
           );
           
@@ -457,54 +544,29 @@ export default function Swap() {
             tokenInAddress,
             approveData
           );
+          console.log('[APPROVAL] Approve tx:', approveTxHash);
           
           toast.success(`${fromToken.symbol} approved`, { id: 'approval' });
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          // Wait longer for approval to confirm
+          await new Promise(resolve => setTimeout(resolve, 3000));
+        } else {
+          console.log('[APPROVAL] Already approved, skipping');
         }
       }
 
       setSwapStatus('swapping');
       toast.loading('Executing swap...', { id: 'swap' });
 
-      const monToken = tokens.find((t: any) => 
-        t.symbol === 'MON' || t.address.toLowerCase() === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
-      );
-      const monPriceUSD = monToken?.price || 0.04;
-      
-      const effectiveFromPrice = fromPrice && fromPrice > 0 ? fromPrice : 0.0001;
+      console.log('[SWAP] Sending transaction to:', targetContract);
+      console.log('[SWAP] Data:', data);
+      console.log('[SWAP] Value:', value.toString());
 
       let txHash: string;
 
-      {
-        const isV3Swap = bestDex.includes("V3");
-        const swapParams = {
-          tokenIn: tokenInAddress,
-          tokenOut: tokenOutAddress,
-          amountIn,
-          minAmountOut,
-          deadline,
-          fromTokenPriceUSD: effectiveFromPrice,
-          monPriceUSD,
-          fromTokenDecimals: decimals,
-          dex: bestDex,
-          isV3: isV3Swap,
-          v3Fee: bestV3Fee,
-          userAddress: userAddress as Address,
-          routes: splitRoutes,
-        };
-        console.log('[SWAP] Params:', {
-          ...swapParams,
-          amountIn: swapParams.amountIn.toString(),
-          minAmountOut: swapParams.minAmountOut.toString(),
-          deadline: swapParams.deadline.toString(),
-          isV3: isV3Swap,
-          v3Fee: bestV3Fee,
-        });
-        const { data, value, targetContract } = getSwapFunctionData(swapParams);
-        console.log('[SWAP] Result:', { data: data.slice(0, 20) + '...', value: value.toString(), targetContract });
-
+      try {
         if (value > 0n) {
           const valueHex = `0x${value.toString(16)}`;
+          console.log('[SWAP] Sending with value:', valueHex);
           txHash = await sendTransactionWithValue(
             provider,
             userAddress,
@@ -513,6 +575,7 @@ export default function Swap() {
             valueHex
           );
         } else {
+          console.log('[SWAP] Sending without value');
           txHash = await sendTransactionViaProvider(
             provider,
             userAddress,
@@ -520,6 +583,13 @@ export default function Swap() {
             data
           );
         }
+        console.log('[SWAP] Transaction hash:', txHash);
+      } catch (txError: any) {
+        console.error('[SWAP] Transaction failed:', txError);
+        console.error('[SWAP] Error message:', txError.message);
+        console.error('[SWAP] Error code:', txError.code);
+        console.error('[SWAP] Error data:', txError.data);
+        throw txError;
       }
 
       setSwapStatus('success');
@@ -771,6 +841,13 @@ export default function Swap() {
                   </button>
                 </Link>
 
+                <Link href="/referral" onClick={() => setMobileMenuOpen(false)} className="block">
+                  <button className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 hover:bg-green-500/20 transition-all">
+                    <Gift className="w-4 h-4" />
+                    <span className="font-display tracking-wider">REFERRAL</span>
+                  </button>
+                </Link>
+
                 <Link href="/leaderboard" onClick={() => setMobileMenuOpen(false)} className="block">
                   <button className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/20 transition-all">
                     <TrendingUp className="w-4 h-4" />
@@ -874,7 +951,7 @@ export default function Swap() {
                       data-testid="button-settings"
                     >
                       <Settings className="w-4 h-4" />
-                      <span className="font-mono">{slippage}%</span>
+                      <span className="font-mono">{autoSlippage ? 'Auto' : `${slippage}%`}</span>
                     </motion.button>
                     
                     {/* Slippage Popover */}
@@ -893,74 +970,94 @@ export default function Swap() {
                             </button>
                           </div>
                           
+                          {/* Auto/Manual Toggle */}
                           <div className="flex gap-2 mb-3">
-                            {SLIPPAGE_PRESETS.map((preset) => (
-                              <button
-                                key={preset}
-                                onClick={() => {
-                                  setSlippage(preset);
-                                  setCustomSlippage("");
-                                }}
-                                className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${
-                                  slippage === preset && !customSlippage
-                                    ? 'bg-primary text-black'
-                                    : 'bg-white/5 hover:bg-white/10 text-white/70'
-                                }`}
-                              >
-                                {preset}%
-                              </button>
-                            ))}
+                            <button
+                              onClick={() => setAutoSlippage(true)}
+                              className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${
+                                autoSlippage
+                                  ? 'bg-primary text-black'
+                                  : 'bg-white/5 hover:bg-white/10 text-white/70'
+                              }`}
+                            >
+                              Auto
+                            </button>
+                            <button
+                              onClick={() => setAutoSlippage(false)}
+                              className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${
+                                !autoSlippage
+                                  ? 'bg-primary text-black'
+                                  : 'bg-white/5 hover:bg-white/10 text-white/70'
+                              }`}
+                            >
+                              Manual
+                            </button>
                           </div>
-                          
-                          <div className="relative mb-3">
-                            <Input
-                              type="number"
-                              placeholder="Custom %"
-                              value={customSlippage}
-                              onChange={(e) => {
-                                setCustomSlippage(e.target.value);
-                                const val = parseFloat(e.target.value);
-                                if (!isNaN(val) && val > 0 && val <= 50) {
-                                  setSlippage(val);
-                                }
-                              }}
-                              className="w-full bg-white/5 border-white/10 rounded-lg text-sm text-white placeholder:text-white/30 pr-8"
-                            />
-                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 text-sm">%</span>
-                          </div>
-                          
-                          {slippage > 5 && (
-                            <div className="flex items-center gap-2 p-2 bg-yellow-500/10 border border-yellow-500/20 rounded-lg mb-3">
-                              <AlertCircle className="w-4 h-4 text-yellow-500" />
-                              <span className="text-xs text-yellow-500">High slippage warning</span>
-                            </div>
-                          )}
-                          
-                          {/* Dynamic Slippage Recommendation based on Price Impact */}
-                          {parseFloat(priceImpact) > 0 && (
-                            <div className="p-2 bg-primary/10 border border-primary/20 rounded-lg">
+
+                          {/* Auto Slippage Display */}
+                          {autoSlippage && (
+                            <div className="p-3 bg-primary/10 border border-primary/20 rounded-lg mb-3">
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
-                                  <TrendingUp className="w-4 h-4 text-primary" />
-                                  <span className="text-xs text-primary">
-                                    Recommended: {Math.max(1, Math.ceil(parseFloat(priceImpact) + 0.5))}%
+                                  <Zap className="w-4 h-4 text-primary" />
+                                  <span className="text-sm font-semibold text-primary">
+                                    {effectiveSlippage}%
                                   </span>
                                 </div>
-                                <button
-                                  onClick={() => {
-                                    const recommended = Math.max(1, Math.ceil(parseFloat(priceImpact) + 0.5));
-                                    setSlippage(recommended);
-                                    setCustomSlippage("");
-                                  }}
-                                  className="px-2 py-1 text-xs bg-primary text-black rounded font-semibold hover:bg-primary/80 transition-colors"
-                                >
-                                  Apply
-                                </button>
+                                <span className="text-xs text-primary/70">Dynamic</span>
                               </div>
                               <div className="text-[10px] text-muted-foreground mt-1">
-                                Based on {parseFloat(priceImpact).toFixed(2)}% price impact
+                                Auto-calculated based on {parseFloat(priceImpact).toFixed(2)}% price impact
                               </div>
                             </div>
+                          )}
+
+                          {/* Manual Slippage Options */}
+                          {!autoSlippage && (
+                            <>
+                              <div className="flex gap-2 mb-3">
+                                {SLIPPAGE_PRESETS.map((preset) => (
+                                  <button
+                                    key={preset}
+                                    onClick={() => {
+                                      setSlippage(preset);
+                                      setCustomSlippage("");
+                                    }}
+                                    className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${
+                                      slippage === preset && !customSlippage
+                                        ? 'bg-primary text-black'
+                                        : 'bg-white/5 hover:bg-white/10 text-white/70'
+                                    }`}
+                                  >
+                                    {preset}%
+                                  </button>
+                                ))}
+                              </div>
+                              
+                              <div className="relative mb-3">
+                                <Input
+                                  type="number"
+                                  placeholder="Custom %"
+                                  value={customSlippage}
+                                  onChange={(e) => {
+                                    setCustomSlippage(e.target.value);
+                                    const val = parseFloat(e.target.value);
+                                    if (!isNaN(val) && val > 0 && val <= 50) {
+                                      setSlippage(val);
+                                    }
+                                  }}
+                                  className="w-full bg-white/5 border-white/10 rounded-lg text-sm text-white placeholder:text-white/30 pr-8"
+                                />
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-white/50 text-sm">%</span>
+                              </div>
+                              
+                              {slippage > 5 && (
+                                <div className="flex items-center gap-2 p-2 bg-yellow-500/10 border border-yellow-500/20 rounded-lg mb-3">
+                                  <AlertCircle className="w-4 h-4 text-yellow-500" />
+                                  <span className="text-xs text-yellow-500">High slippage warning</span>
+                                </div>
+                              )}
+                            </>
                           )}
                           
                         </motion.div>

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Wallet, ArrowDownUp, Lock, Menu, X, LogOut, Loader, AlertTriangle, Copy, Check } from "lucide-react";
+import { Wallet, ArrowDownUp, Lock, Menu, X, LogOut, Loader, AlertTriangle, Copy, Check, Gift, Trophy } from "lucide-react";
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -158,8 +158,16 @@ export default function Staking() {
                   </button>
                 </Link>
 
+                <Link href="/referral" onClick={() => setMobileMenuOpen(false)} className="block">
+                  <button className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 hover:bg-green-500/20 transition-all">
+                    <Gift className="w-4 h-4" />
+                    <span className="font-display tracking-wider">REFERRAL</span>
+                  </button>
+                </Link>
+
                 <Link href="/leaderboard" onClick={() => setMobileMenuOpen(false)} className="block">
                   <button className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/20 transition-all">
+                    <Trophy className="w-4 h-4" />
                     <span className="font-display tracking-wider">LEADERBOARD</span>
                   </button>
                 </Link>

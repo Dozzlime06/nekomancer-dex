@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Wallet, ArrowDownUp, Lock, Menu, X, LogOut, Trophy, TrendingUp, Users } from "lucide-react";
+import { Wallet, ArrowDownUp, Lock, Menu, X, LogOut, Trophy, TrendingUp, Users, Gift } from "lucide-react";
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -143,6 +143,13 @@ export default function Leaderboard() {
                   <button className="w-full neko-button-secondary flex items-center justify-center gap-2 px-4 py-3">
                     <Lock className="w-4 h-4" />
                     <span className="font-display tracking-wider">BIND YOUR TOKENS</span>
+                  </button>
+                </Link>
+
+                <Link href="/referral" onClick={() => setMobileMenuOpen(false)} className="block">
+                  <button className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 hover:bg-green-500/20 transition-all">
+                    <Gift className="w-4 h-4" />
+                    <span className="font-display tracking-wider">REFERRAL</span>
                   </button>
                 </Link>
 

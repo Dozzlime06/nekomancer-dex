@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type Swap, type InsertSwap, type Stake, type InsertStake, swaps, stakes, users } from "@shared/schema";
+import { type User, type InsertUser, type Swap, type InsertSwap, type Stake, type InsertStake, type ReferralCode, type InsertReferralCode, swaps, stakes, users, referralCodes, referralEarnings } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
 import { eq, sql, desc } from "drizzle-orm";
@@ -27,6 +27,14 @@ export interface StakingLeaderboardEntry {
   stakeCount: number;
 }
 
+// Referral stats
+export interface ReferralStats {
+  totalEarnings: string;
+  pendingEarnings: string;
+  claimedEarnings: string;
+  referralCount: number;
+}
+
 // Storage interface
 export interface IStorage {
   // Users
@@ -50,6 +58,11 @@ export interface IStorage {
   getTopStakers(limit?: number): Promise<StakingLeaderboardEntry[]>;
   getTotalStaked(): Promise<number>;
   getTotalStakers(): Promise<number>;
+  // Referrals
+  getReferralByCode(code: string): Promise<ReferralCode | null>;
+  getReferralByWallet(walletAddress: string): Promise<ReferralCode | null>;
+  createReferral(walletAddress: string, code: string): Promise<ReferralCode>;
+  getReferralStats(walletAddress: string): Promise<ReferralStats>;
 }
 
 export class MemStorage implements IStorage {
@@ -217,6 +230,47 @@ export class MemStorage implements IStorage {
       WHERE action = 'stake'
     `);
     return parseInt((result.rows[0] as any)?.count || '0');
+  }
+
+  // Referral methods - use PostgreSQL database
+  async getReferralByCode(code: string): Promise<ReferralCode | null> {
+    const result = await db.select().from(referralCodes).where(eq(referralCodes.code, code.toUpperCase()));
+    return result[0] || null;
+  }
+
+  async getReferralByWallet(walletAddress: string): Promise<ReferralCode | null> {
+    const result = await db.select().from(referralCodes).where(eq(referralCodes.walletAddress, walletAddress.toLowerCase()));
+    return result[0] || null;
+  }
+
+  async createReferral(walletAddress: string, code: string): Promise<ReferralCode> {
+    const [referral] = await db.insert(referralCodes).values({
+      walletAddress: walletAddress.toLowerCase(),
+      code: code.toUpperCase(),
+    }).returning();
+    console.log(`[STORAGE] Created referral: ${code} for ${walletAddress.slice(0, 10)}...`);
+    return referral;
+  }
+
+  async getReferralStats(walletAddress: string): Promise<ReferralStats> {
+    const result = await db.execute(sql`
+      SELECT 
+        COALESCE(SUM(CAST(earned_mon AS DECIMAL)), 0) as "totalEarnings",
+        COUNT(DISTINCT swapper_wallet) as "referralCount"
+      FROM referral_earnings
+      WHERE LOWER(referrer_wallet) = ${walletAddress.toLowerCase()}
+    `);
+    
+    const row = result.rows[0] as any;
+    const totalEarnings = row?.totalEarnings || '0';
+    const referralCount = parseInt(row?.referralCount || '0');
+    
+    return {
+      totalEarnings,
+      pendingEarnings: totalEarnings,
+      claimedEarnings: '0',
+      referralCount,
+    };
   }
 }
 

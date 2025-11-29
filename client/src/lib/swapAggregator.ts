@@ -18,10 +18,14 @@ export const SWAP_AGGREGATOR_ABI = parseAbi([
   'function swapMONForTokens(address tokenOut, uint256 minOut, uint256 deadline, bool useV3, uint24 v3Fee) external payable returns (uint256)',
   'function swapTokensForMON(address tokenIn, uint256 amountIn, uint256 minOut, uint256 deadline, bool useV3, uint24 v3Fee) external returns (uint256)',
   'function swapTokensForTokens(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut, uint256 deadline) external payable returns (uint256)',
+  'function swapMONForTokensWithReferral(address tokenOut, uint256 minOut, uint256 deadline, uint24 v3Fee, address referrer) external payable returns (uint256)',
+  'function swapTokensForMONWithReferral(address tokenIn, uint256 amountIn, uint256 minOut, uint256 deadline, uint24 v3Fee, address referrer) external returns (uint256)',
   'function nadFunBuy(address token, uint256 minOut, uint256 deadline, uint24 v3Fee) external payable returns (uint256)',
   'function nadFunBuyWithReferrer(address token, uint256 minOut, uint256 deadline, uint24 v3Fee, address referrer) external payable returns (uint256)',
+  'function nadFunBuyWithReferral(address token, uint256 minOut, uint256 deadline, uint24 v3Fee, address referrer) external payable returns (uint256)',
   'function nadFunSell(address token, uint256 amountIn, uint256 minOut, uint256 deadline, uint24 v3Fee) external returns (uint256)',
   'function nadFunSellWithReferrer(address token, uint256 amountIn, uint256 minOut, uint256 deadline, uint24 v3Fee, address referrer) external returns (uint256)',
+  'function nadFunSellWithReferral(address token, uint256 amountIn, uint256 minOut, uint256 deadline, uint24 v3Fee, address referrer) external returns (uint256)',
   'function multiPathSwapMONForTokens(address tokenOut, (uint8 dexId, uint256 amountIn, uint256 minOut, uint24 v3Fee, address token, bool isGraduated)[] routes, uint256 deadline) external payable returns (uint256)',
   'function multiPathSwapTokensForMON(address tokenIn, uint256 totalAmountIn, (uint8 dexId, uint256 amountIn, uint256 minOut, uint24 v3Fee, address token, bool isGraduated)[] routes, uint256 deadline) external returns (uint256)',
   'function queueNadFunSellViaRelayer(address token, uint256 amountIn, uint256 minOut, uint256 deadline) external returns (uint256)',
@@ -30,6 +34,7 @@ export const SWAP_AGGREGATOR_ABI = parseAbi([
   'function platformRecipient() external view returns (address)',
   'function stakingRecipient() external view returns (address)',
   'function relayerAddress() external view returns (address)',
+  'function referralVault() external view returns (address)',
   'function getVersion() external pure returns (string)',
 ]);
 
@@ -105,6 +110,7 @@ export interface SwapParams {
   v3Fee?: number;
   userAddress?: Address;
   routes?: RouteInfo[];
+  referrer?: Address;
 }
 
 export function isNativeMON(address: string): boolean {
@@ -278,8 +284,12 @@ export function getSwapFunctionData(params: SwapParams): { data: `0x${string}`; 
     fromTokenDecimals = 18,
     dex = '',
     userAddress,
-    routes = []
+    routes = [],
+    referrer
   } = params;
+  
+  const hasReferrer = referrer && referrer !== '0x0000000000000000000000000000000000000000';
+  console.log('[SWAP_DATA] Referrer:', hasReferrer ? referrer : 'none');
   
   // Detect V3 from routes (dexId 2 = Uniswap V3) or from dex string
   const v3Route = routes.find(r => r.dexId === 2);
@@ -349,6 +359,18 @@ export function getSwapFunctionData(params: SwapParams): { data: `0x${string}`; 
         };
       } else {
         // GRADUATED: Route through aggregator for 1% fee collection
+        if (hasReferrer) {
+          console.log('[NADFUN] BUY GRADUATED WITH REFERRAL - via aggregator nadFunBuyWithReferral');
+          return {
+            data: encodeFunctionData({
+              abi: SWAP_AGGREGATOR_ABI,
+              functionName: 'nadFunBuyWithReferral',
+              args: [targetToken, minAmountOut, deadline, v3Fee, referrer!],
+            }),
+            value: amountIn,
+            targetContract: SWAP_AGGREGATOR_ADDRESS,
+          };
+        }
         console.log('[NADFUN] BUY GRADUATED - via aggregator nadFunBuy');
         return {
           data: encodeFunctionData({
@@ -386,6 +408,28 @@ export function getSwapFunctionData(params: SwapParams): { data: `0x${string}`; 
       } else {
         // GRADUATED: Route through aggregator's nadFunSell for 1% fee collection
         // V31 FIX: DEX Router returns native MON, not WMON - now tracking address(this).balance
+        if (hasReferrer) {
+          console.log('[NADFUN] SELL GRADUATED WITH REFERRAL - Via Aggregator nadFunSellWithReferral');
+          console.log('[NADFUN] nadFunSellWithReferral params:', {
+            token: targetToken,
+            amountIn: amountIn.toString(),
+            minOut: minAmountOut.toString(),
+            deadline: deadline.toString(),
+            v3Fee: 0,
+            referrer: referrer,
+          });
+          return {
+            data: encodeFunctionData({
+              abi: SWAP_AGGREGATOR_ABI,
+              functionName: 'nadFunSellWithReferral',
+              args: [targetToken, amountIn, minAmountOut, deadline, 0, referrer!],
+            }),
+            value: 0n,
+            targetContract: SWAP_AGGREGATOR_ADDRESS,
+            requiresApproval: true,
+            approvalTarget: SWAP_AGGREGATOR_ADDRESS,
+          };
+        }
         console.log('[NADFUN] SELL GRADUATED - Via Aggregator nadFunSell (V31 with fee collection)');
         console.log('[NADFUN] nadFunSell params:', {
           token: targetToken,
@@ -429,9 +473,23 @@ export function getSwapFunctionData(params: SwapParams): { data: `0x${string}`; 
       deadline: deadline.toString(),
       isV3,
       v3Fee,
+      referrer: hasReferrer ? referrer : 'none',
     });
     
     const safeV3FeeForMON = Number(v3Fee) || 3000;
+    
+    // Use WithReferral version if referrer is provided
+    if (hasReferrer) {
+      return {
+        data: encodeFunctionData({
+          abi: SWAP_AGGREGATOR_ABI,
+          functionName: 'swapMONForTokensWithReferral',
+          args: [tokenOut, minAmountOut, deadline, safeV3FeeForMON, referrer!],
+        }),
+        value: amountIn,
+        targetContract: SWAP_AGGREGATOR_ADDRESS,
+      };
+    }
     
     return {
       data: encodeFunctionData({
@@ -477,6 +535,7 @@ export function getSwapFunctionData(params: SwapParams): { data: `0x${string}`; 
       deadline: deadline.toString(),
       isV3,
       v3Fee,
+      referrer: hasReferrer ? referrer : 'none',
     });
     
     // Validate minAmountOut is a proper BigInt
@@ -485,6 +544,19 @@ export function getSwapFunctionData(params: SwapParams): { data: `0x${string}`; 
     }
     
     const safeV3Fee = Number(v3Fee) || 3000;
+    
+    // Use WithReferral version if referrer is provided
+    if (hasReferrer) {
+      return {
+        data: encodeFunctionData({
+          abi: SWAP_AGGREGATOR_ABI,
+          functionName: 'swapTokensForMONWithReferral',
+          args: [tokenIn, amountIn, minAmountOut, deadline, safeV3Fee, referrer!],
+        }),
+        value: 0n,
+        targetContract: SWAP_AGGREGATOR_ADDRESS,
+      };
+    }
     
     return {
       data: encodeFunctionData({

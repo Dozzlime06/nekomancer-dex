@@ -2,24 +2,47 @@
 
 ## DEPLOYED TO MONAD MAINNET (Chain 143)
 
-### SwapAggregatorV31 (UUPS Upgradeable) - LIVE ON MONAD ✅
+### SwapAggregatorV32 (UUPS Upgradeable) - LIVE ON MONAD ✅
 - **Proxy (PERMANENT):** `0x6524822e437dcd23d62c77496d7a0ac980fbc81d`
-- **Implementation (V31):** `0x831Db236603F0b4c34c47aFc634782D6C5362C50`
-- **Upgrade TX:** `0xf3d19788753f9701663a8baf93a436cf2907e95bd12b8cd4c305b3cd9d08834b`
+- **Implementation (V32):** `0x19332B438Da14Ac5537d499d7e279f45C8A476c6`
+- **Upgrade TX:** `0xa008e1b4b911e4438669a9201474756cc11247d69f61f7dbf617bb43ffb900cf`
 - **Status:** LIVE on Monad Mainnet (Chain 143)
-- **V31 FIX:** DEX Router returns native MON, not WMON - now tracking address(this).balance for graduated token sells
-- **V30 NEW FEATURES:**
-  1. **Multi-Hop Routing:** Token A → WMON → Token B (shitcoin to shitcoin swaps!)
-  2. **Multi-Recipient Fee Distribution:** Pass fee recipients as function parameters
-  3. **Custom Fee Splits:** Platform, Staking, Referrer with custom percentages
-- **V30 New Functions:**
-  - `swapTokensForTokens(tokenIn, tokenOut, amountIn, minOut, deadline, feeIn, feeOut)` - Multi-hop swap
-  - `swapTokensWithFees(tokenIn, tokenOut, amountIn, minOut, deadline, feeIn, feeOut, feeRecipients[])` - Multi-hop with custom fees
-  - `swapMONForTokensWithFees(tokenOut, minOut, deadline, v3Fee, feeRecipients[])` - Buy with custom fees
-  - `swapTokensForMONWithFees(tokenIn, amountIn, minOut, deadline, v3Fee, feeRecipients[])` - Sell with custom fees
-  - `nadFunSellWithFees(token, amountIn, minOut, deadline, v3Fee, feeRecipients[])` - Nad.Fun sell with custom fees
-- **FeeRecipient Struct:** `{ address recipient, uint256 bps }`
-- **Example Fee Split:** `[(platform, 5000), (staking, 3000), (referrer, 2000)]` = 50% platform, 30% staking, 20% referrer
+- **V32 NEW FEATURES:**
+  1. **ReferralVault Integration:** Referral fees deposited to vault for claiming
+  2. **Hardcoded Fee Split:** 30% Platform, 20% Referral (claimable), 50% Staking
+  3. **New WithReferral Functions:** Pass referrer address directly
+- **V32 New Functions:**
+  - `swapMONForTokensWithReferral(tokenOut, minOut, deadline, v3Fee, referrer)` - Buy with referral
+  - `swapTokensForMONWithReferral(tokenIn, amountIn, minOut, deadline, v3Fee, referrer)` - Sell with referral
+  - `nadFunBuyWithReferral(token, minOut, deadline, v3Fee, referrer)` - Nad.Fun buy with referral
+  - `nadFunSellWithReferral(token, amountIn, minOut, deadline, v3Fee, referrer)` - Nad.Fun sell with referral
+  - `setReferralVault(address)` - Set ReferralVault address (owner only)
+- **ReferralVault:** `0x28e123cfd53EA9B39BCec297eba161F0742764F2`
+
+### ReferralVault V2 (UUPS Upgradeable) - LIVE ON MONAD ✅
+- **Proxy (PERMANENT):** `0x28e123cfd53EA9B39BCec297eba161F0742764F2`
+- **Implementation V2:** `0x141e636B8601e40c74f02b17114FB54A5030E706`
+- **Status:** LIVE on Monad Mainnet (Chain 143)
+- **V2 Features:**
+  - **Minimum Claim:** $10 USD equivalent in MON (dynamic based on price)
+  - Referrers can claim earnings anytime (above minimum)
+  - Owner can emergency withdraw stuck funds
+  - Tracks referral count per referrer
+- **Functions:**
+  - `claim()` - Claim all pending earnings (must be >= minClaimAmount)
+  - `claimAmount(amount)` - Claim partial amount (must be >= minClaimAmount)
+  - `getReferrerStats(referrer)` - Get pending, claimed, count
+  - `minClaimAmount()` - Get current minimum in MON
+  - `setMinClaimAmount(amount)` - Update minimum (owner only)
+  - `emergencyWithdraw(to, amount)` - Owner rescue funds
+  - `setDepositor(address, bool)` - Authorize depositors
+
+### SwapAggregatorV31 (UUPS Upgradeable) - PREVIOUS
+- **Implementation (V31):** `0x831Db236603F0b4c34c47aFc634782D6C5362C50`
+- **V31 FIX:** DEX Router returns native MON, not WMON
+
+### SwapAggregatorV30 (UUPS Upgradeable) - PREVIOUS
+- **V30 FEATURES:** Multi-Hop Routing, Multi-Recipient Fee Distribution, Custom Fee Splits
 - **API Endpoints:**
   - `POST /api/swap/pathfinder` - Find best direct route
   - `POST /api/swap/multihop` - Find best multi-hop route for token-to-token swaps

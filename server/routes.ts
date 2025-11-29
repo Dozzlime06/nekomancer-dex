@@ -3,8 +3,8 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { createPublicClient, http, parseAbi, getAddress, createWalletClient, encodeFunctionData, parseUnits } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { getAllSwapQuotes } from "./swap";
-import { findBestPath, isNadFunToken } from "./pathfinder";
+import { getAllSwapQuotes, getWMONPriceUSD } from "./swap";
+import { findBestPath, isNadFunToken, findMultiHopPath, findBestTokenToTokenPath } from "./pathfinder";
 import { 
   recordSwapToSheet, 
   recordStakeToSheet, 
@@ -1178,6 +1178,140 @@ export async function registerRoutes(
     }
   });
 
+  // Token URI endpoint - get tokenURI metadata for any token (including non-bonded)
+  app.get("/api/token-uri/:address", async (req, res) => {
+    try {
+      const { address } = req.params;
+      
+      if (!address) {
+        return res.status(400).json({ error: "Missing token address" });
+      }
+
+      let normalizedAddress: `0x${string}`;
+      try {
+        normalizedAddress = getAddress(address);
+      } catch {
+        return res.status(400).json({ error: "Invalid token address" });
+      }
+
+      const client = createPublicClient({
+        transport: http(RPC_URLS[143]),
+      });
+
+      // Try to fetch tokenURI from the token contract
+      let tokenURI = null;
+      let metadata = null;
+      let logo = null;
+
+      try {
+        tokenURI = await client.readContract({
+          address: normalizedAddress,
+          abi: NAD_FUN_TOKEN_ABI,
+          functionName: 'tokenURI',
+        }) as string;
+        
+        console.log(`[TOKEN_URI] Raw tokenURI for ${address}: ${tokenURI?.slice(0, 100)}...`);
+
+        // Parse the tokenURI to get metadata
+        if (tokenURI) {
+          if (tokenURI.startsWith('data:application/json;base64,')) {
+            // Base64 encoded JSON metadata
+            const base64Data = tokenURI.split(',')[1];
+            const jsonStr = Buffer.from(base64Data, 'base64').toString('utf8');
+            metadata = JSON.parse(jsonStr);
+            logo = metadata.image;
+          } else if (tokenURI.startsWith('data:application/json')) {
+            // Direct JSON
+            const jsonStr = tokenURI.replace('data:application/json,', '');
+            metadata = JSON.parse(decodeURIComponent(jsonStr));
+            logo = metadata.image;
+          } else if (tokenURI.startsWith('http')) {
+            // URL - fetch metadata
+            const metaResponse = await fetch(tokenURI, { signal: AbortSignal.timeout(5000) });
+            if (metaResponse.ok) {
+              metadata = await metaResponse.json();
+              logo = metadata.image;
+            }
+          } else if (tokenURI.startsWith('ipfs://')) {
+            // IPFS URL
+            const ipfsUrl = tokenURI.replace('ipfs://', 'https://ipfs.io/ipfs/');
+            const metaResponse = await fetch(ipfsUrl, { signal: AbortSignal.timeout(5000) });
+            if (metaResponse.ok) {
+              metadata = await metaResponse.json();
+              logo = metadata.image;
+            }
+          }
+        }
+      } catch (e) {
+        console.log(`[TOKEN_URI] No tokenURI for ${address}: ${(e as Error).message}`);
+      }
+
+      // Also try to get basic ERC20 info
+      let symbol = 'TKN';
+      let name = 'Token';
+      let decimals = 18;
+
+      try {
+        symbol = await client.readContract({
+          address: normalizedAddress,
+          abi: ERC20_ABI,
+          functionName: 'symbol',
+        }) as string;
+      } catch {}
+
+      try {
+        name = await client.readContract({
+          address: normalizedAddress,
+          abi: ERC20_ABI,
+          functionName: 'name',
+        }) as string;
+      } catch {}
+
+      try {
+        decimals = await client.readContract({
+          address: normalizedAddress,
+          abi: ERC20_ABI,
+          functionName: 'decimals',
+        }) as number;
+      } catch {}
+
+      // Check if graduated via Nad.Fun
+      let isGraduated = false;
+      let isNadFun = false;
+      try {
+        isGraduated = await client.readContract({
+          address: NAD_FUN_LENS as `0x${string}`,
+          abi: NAD_FUN_LENS_ABI,
+          functionName: 'isGraduated',
+          args: [normalizedAddress],
+        }) as boolean;
+        isNadFun = true;
+      } catch {
+        // Not a Nad.Fun token or lens not available
+      }
+
+      // Fallback logo from DexScreener if no tokenURI
+      if (!logo) {
+        logo = `https://dd.dexscreener.com/ds-data/tokens/monad/${normalizedAddress.toLowerCase()}.png`;
+      }
+
+      res.json({
+        address: normalizedAddress,
+        symbol,
+        name,
+        decimals,
+        tokenURI,
+        metadata,
+        logo,
+        isNadFun,
+        isGraduated,
+      });
+    } catch (error) {
+      console.error('Token URI error:', error);
+      res.status(500).json({ error: "Failed to fetch token URI" });
+    }
+  });
+
   // Balance API endpoint
   app.post("/api/balance", async (req, res) => {
     try {
@@ -1228,6 +1362,39 @@ export async function registerRoutes(
     } catch (error) {
       console.error('Nad.Fun check error:', error);
       res.status(500).json({ error: "Failed to check token" });
+    }
+  });
+  
+  // Multi-hop pathfinder - Token to Token swaps through WMON
+  app.post("/api/swap/multihop", async (req, res) => {
+    try {
+      const { tokenIn, tokenOut, amountIn, slippageBps = 100, tokenInDecimals = 18 } = req.body;
+      
+      if (!tokenIn || !tokenOut || !amountIn) {
+        return res.status(400).json({ error: "Missing required fields: tokenIn, tokenOut, amountIn" });
+      }
+
+      console.log(`[MULTIHOP] Finding path for ${amountIn} ${tokenIn} -> ${tokenOut}`);
+      
+      const result = await findBestTokenToTokenPath(tokenIn, tokenOut, amountIn, slippageBps, tokenInDecimals);
+      
+      console.log(`[MULTIHOP] Recommendation: ${result.recommendation}`);
+      
+      res.json(result);
+    } catch (error) {
+      console.error('Multi-hop pathfinder error:', error);
+      res.status(500).json({ error: "Failed to find multi-hop path" });
+    }
+  });
+
+  // MON price endpoint
+  app.get("/api/swap/mon-price", async (req, res) => {
+    try {
+      const price = await getWMONPriceUSD();
+      res.json({ price, timestamp: Date.now() });
+    } catch (error) {
+      console.error('MON price error:', error);
+      res.json({ price: 0.035, timestamp: Date.now() });
     }
   });
 
@@ -1702,6 +1869,87 @@ export async function registerRoutes(
     } catch (error) {
       console.error('[ROUTES] Error fetching all stats:', error);
       res.status(500).json({ error: "Failed to fetch stats" });
+    }
+  });
+
+  // Referral code lookup
+  app.get("/api/referral/lookup", async (req, res) => {
+    try {
+      const { code } = req.query;
+
+      if (!code || typeof code !== 'string') {
+        return res.status(400).json({ message: 'Referral code required' });
+      }
+
+      const result = await storage.getReferralByCode(code.toUpperCase());
+
+      if (!result) {
+        return res.status(404).json({ message: 'Code not found' });
+      }
+
+      res.json({ referrerWallet: result.walletAddress });
+    } catch (error: any) {
+      console.error('[ROUTES] Error looking up referral:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Generate referral code
+  app.post("/api/referral/generate", async (req, res) => {
+    try {
+      const { walletAddress } = req.body;
+
+      if (!walletAddress) {
+        return res.status(400).json({ message: 'Wallet address required' });
+      }
+
+      const existing = await storage.getReferralByWallet(walletAddress);
+      if (existing) {
+        return res.json({ code: existing.code, referrerWallet: existing.walletAddress });
+      }
+
+      const code = `NEK${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      const newReferral = await storage.createReferral(walletAddress, code);
+
+      res.json({ code: newReferral.code, referrerWallet: newReferral.walletAddress });
+    } catch (error: any) {
+      console.error('[ROUTES] Error generating referral:', error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get referral stats
+  app.get("/api/referral/stats", async (req, res) => {
+    try {
+      const { walletAddress } = req.query;
+
+      if (!walletAddress || typeof walletAddress !== 'string') {
+        return res.status(400).json({ message: 'Wallet address required' });
+      }
+
+      const referral = await storage.getReferralByWallet(walletAddress);
+      if (!referral) {
+        return res.json({
+          code: null,
+          totalEarnings: "0",
+          pendingEarnings: "0",
+          claimedEarnings: "0",
+          referralCount: 0,
+        });
+      }
+
+      const stats = await storage.getReferralStats(walletAddress);
+
+      res.json({
+        code: referral.code,
+        totalEarnings: stats.totalEarnings,
+        pendingEarnings: stats.pendingEarnings,
+        claimedEarnings: stats.claimedEarnings,
+        referralCount: stats.referralCount,
+      });
+    } catch (error: any) {
+      console.error('[ROUTES] Error fetching referral stats:', error);
+      res.status(500).json({ message: error.message });
     }
   });
 

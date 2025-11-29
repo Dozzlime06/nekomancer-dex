@@ -8,6 +8,7 @@ const NATIVE_TOKEN = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
 const UNISWAP_V2_ROUTER = '0x4B2ab38DBF28D31D467aA8993f6c2585981D6804';
 const PANCAKE_V2_ROUTER = '0xB1Bc24c34e88f7D43D5923034E3a14B24DaACfF9';
 const UNISWAP_V3_QUOTER = '0x661E93cca42AfacB172121EF892830cA3b70F08d';
+const NADFUN_LENS = '0x7e78A8DE94f21804F7a17F4E8BF9EC2c872187ea';
 
 const V2_ROUTER_ABI = parseAbi([
   'function getAmountsOut(uint amountIn, address[] calldata path) external view returns (uint[] memory amounts)',
@@ -15,6 +16,11 @@ const V2_ROUTER_ABI = parseAbi([
 
 const V3_QUOTER_ABI = parseAbi([
   'function quoteExactInputSingle((address tokenIn, address tokenOut, uint256 amountIn, uint24 fee, uint160 sqrtPriceLimitX96)) external returns (uint256 amountOut, uint160 sqrtPriceX96After, uint32 initializedTicksCrossed, uint256 gasEstimate)',
+]);
+
+const NADFUN_LENS_ABI = parseAbi([
+  'function getAmountOut(address _token, uint256 _amountIn, bool _isBuy) external view returns (address router, uint256 amountOut)',
+  'function isGraduated(address _token) external view returns (bool)',
 ]);
 
 const ERC20_ABI = parseAbi([
@@ -38,12 +44,14 @@ async function getTokenDecimals(client: any, address: string): Promise<number> {
 
 interface QuoteResult {
   dex: string;
+  dexId: number;
   amountOut: bigint;
   fee?: number;
   path: string[];
+  isGraduated?: boolean;
 }
 
-async function getV2Quote(client: any, router: string, dexName: string, tokenIn: string, tokenOut: string, amountIn: bigint): Promise<QuoteResult | null> {
+async function getV2Quote(client: any, router: string, dexName: string, dexId: number, tokenIn: string, tokenOut: string, amountIn: bigint): Promise<QuoteResult | null> {
   try {
     const path = [tokenIn, tokenOut];
     const amounts = await client.readContract({
@@ -54,24 +62,16 @@ async function getV2Quote(client: any, router: string, dexName: string, tokenIn:
     }) as bigint[];
     
     if (amounts[1] > 0n) {
-      return { dex: dexName, amountOut: amounts[1], path };
+      return { dex: dexName, dexId, amountOut: amounts[1], path };
     }
   } catch {}
   return null;
 }
 
-const DEX_DISPLAY_NAMES: Record<string, string> = {
-  'uniswap_v2': 'Uniswap V2',
-  'pancakeswap_v2': 'PancakeSwap V2', 
-  'uniswap_v3': 'Uniswap V3',
-  'wrap': 'Wrap MON',
-  'unwrap': 'Unwrap WMON',
-};
-
 async function getV3Quote(client: any, tokenIn: string, tokenOut: string, amountIn: bigint): Promise<QuoteResult | null> {
   let bestResult: QuoteResult | null = null;
   
-  for (const fee of [500, 3000, 10000]) {
+  for (const fee of [100, 500, 3000, 10000]) {
     try {
       const result = await client.simulateContract({
         address: UNISWAP_V3_QUOTER as `0x${string}`,
@@ -88,7 +88,8 @@ async function getV3Quote(client: any, tokenIn: string, tokenOut: string, amount
       const amountOut = (result.result as any)[0] as bigint;
       if (amountOut > 0n && (!bestResult || amountOut > bestResult.amountOut)) {
         bestResult = { 
-          dex: 'uniswap_v3', 
+          dex: 'Uniswap V3', 
+          dexId: 2,
           amountOut, 
           fee,
           path: [tokenIn, tokenOut]
@@ -97,6 +98,37 @@ async function getV3Quote(client: any, tokenIn: string, tokenOut: string, amount
     } catch {}
   }
   return bestResult;
+}
+
+async function getNadFunQuote(client: any, token: string, amountIn: bigint, isBuy: boolean): Promise<QuoteResult | null> {
+  try {
+    const [quoteResult, isGraduated] = await Promise.all([
+      client.readContract({
+        address: NADFUN_LENS as `0x${string}`,
+        abi: NADFUN_LENS_ABI,
+        functionName: 'getAmountOut',
+        args: [token as `0x${string}`, amountIn, isBuy],
+      }),
+      client.readContract({
+        address: NADFUN_LENS as `0x${string}`,
+        abi: NADFUN_LENS_ABI,
+        functionName: 'isGraduated',
+        args: [token as `0x${string}`],
+      }).catch(() => false),
+    ]);
+    
+    const amountOut = (quoteResult as any)[1] as bigint;
+    if (amountOut > 0n) {
+      return {
+        dex: 'Nad.Fun',
+        dexId: 3,
+        amountOut,
+        path: isBuy ? [WMON, token] : [token, WMON],
+        isGraduated: isGraduated as boolean,
+      };
+    }
+  } catch {}
+  return null;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -127,6 +159,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const isFromWMON = tokenIn.toLowerCase() === WMON.toLowerCase();
     const isToWMON = tokenOut.toLowerCase() === WMON.toLowerCase();
     
+    // Handle wrap/unwrap
     if ((isFromNative && isToWMON) || (isFromWMON && isToNative)) {
       const formattedOut = formatUnits(inputAmount, outDecimals);
       const slippageMultiplier = 10000n - BigInt(slippageBps);
@@ -134,22 +167,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       
       return res.status(200).json({
         routes: [{
-          dex: isFromNative ? 'wrap' : 'unwrap',
-          dexId: 3,
+          dex: isFromNative ? 'Wrap MON' : 'Unwrap WMON',
+          dexId: 4,
           dexName: isFromNative ? 'Wrap MON' : 'Unwrap WMON',
           path: [tokenIn, tokenOut],
           percentage: 100,
           amountIn: amountIn.toString(),
           amountOut: formattedOut,
           expectedOut: inputAmount.toString(),
+          minOut: minAmountOut.toString(),
           rawAmountOut: inputAmount.toString(),
           fee: 0,
           v3Fee: 0,
         }],
         totalAmountOut: inputAmount.toString(),
         totalMinOut: minAmountOut.toString(),
-        bestDex: isFromNative ? 'wrap' : 'unwrap',
-        bestSingleDex: isFromNative ? 'wrap' : 'unwrap',
+        bestDex: isFromNative ? 'Wrap MON' : 'Unwrap WMON',
+        bestSingleDex: isFromNative ? 'Wrap MON' : 'Unwrap WMON',
         priceImpact: 0,
         formattedAmountOut: formattedOut,
       });
@@ -157,18 +191,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     
     const fromAddr = isFromNative ? WMON : tokenIn;
     const toAddr = isToNative ? WMON : tokenOut;
+    
+    // Determine if this is a buy (MON→Token) or sell (Token→MON)
+    const isBuyingToken = fromAddr.toLowerCase() === WMON.toLowerCase();
+    const targetToken = isBuyingToken ? toAddr : fromAddr;
 
     const quotes: QuoteResult[] = [];
 
-    const [uniV2, pancakeV2, uniV3] = await Promise.all([
-      getV2Quote(client, UNISWAP_V2_ROUTER, 'uniswap_v2', fromAddr, toAddr, inputAmount),
-      getV2Quote(client, PANCAKE_V2_ROUTER, 'pancakeswap_v2', fromAddr, toAddr, inputAmount),
+    // Get all quotes in parallel
+    const [uniV2, pancakeV2, uniV3, nadFun] = await Promise.all([
+      getV2Quote(client, UNISWAP_V2_ROUTER, 'Uniswap V2', 0, fromAddr, toAddr, inputAmount),
+      getV2Quote(client, PANCAKE_V2_ROUTER, 'PancakeSwap V2', 1, fromAddr, toAddr, inputAmount),
       getV3Quote(client, fromAddr, toAddr, inputAmount),
+      // Only check Nad.Fun for MON↔Token swaps (not Token↔Token)
+      (fromAddr.toLowerCase() === WMON.toLowerCase() || toAddr.toLowerCase() === WMON.toLowerCase())
+        ? getNadFunQuote(client, targetToken, inputAmount, isBuyingToken)
+        : Promise.resolve(null),
     ]);
 
     if (uniV2) quotes.push(uniV2);
     if (pancakeV2) quotes.push(pancakeV2);
     if (uniV3) quotes.push(uniV3);
+    if (nadFun) quotes.push(nadFun);
 
     if (quotes.length === 0) {
       return res.status(200).json({
@@ -180,6 +224,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
+    // Sort by best output
     quotes.sort((a, b) => (b.amountOut > a.amountOut ? 1 : -1));
     const best = quotes[0];
     
@@ -188,18 +233,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const formattedOut = formatUnits(best.amountOut, outDecimals);
     
-    const dexIdMap: Record<string, number> = {
-      'uniswap_v2': 0,
-      'pancakeswap_v2': 1,
-      'uniswap_v3': 2,
-    };
-    
-    const displayName = DEX_DISPLAY_NAMES[best.dex] || best.dex;
-    
     const route = {
-      dex: displayName,
-      dexId: dexIdMap[best.dex] ?? 0,
-      dexName: displayName,
+      dex: best.dex,
+      dexId: best.dexId,
+      dexName: best.dex,
       path: best.path,
       percentage: 100,
       amountIn: amountIn.toString(),
@@ -207,16 +244,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       expectedOut: best.amountOut.toString(),
       minOut: minAmountOut.toString(),
       rawAmountOut: best.amountOut.toString(),
-      fee: best.fee || 3000,
+      fee: best.fee || 0,
       v3Fee: best.fee || 3000,
+      isGraduated: best.isGraduated || false,
     };
 
     return res.status(200).json({
       routes: [route],
       totalAmountOut: best.amountOut.toString(),
       totalMinOut: minAmountOut.toString(),
-      bestDex: displayName,
-      bestSingleDex: displayName,
+      bestDex: best.dex,
+      bestSingleDex: best.dex,
       priceImpact: 0.1,
       formattedAmountOut: formattedOut,
     });

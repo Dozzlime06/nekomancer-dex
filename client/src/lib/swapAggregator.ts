@@ -268,6 +268,30 @@ export function getSwapFunctionData(params: SwapParams): { data: `0x${string}`; 
     routes = []
   } = params;
   
+  // Handle wrap/unwrap FIRST (before nadfun check)
+  if (isNativeMON(tokenIn) && isWMON(tokenOut)) {
+    return {
+      data: encodeFunctionData({
+        abi: WMON_ABI,
+        functionName: 'deposit',
+      }),
+      value: amountIn,
+      targetContract: WMON_ADDRESS,
+    };
+  }
+  
+  if (isWMON(tokenIn) && isNativeMON(tokenOut)) {
+    return {
+      data: encodeFunctionData({
+        abi: WMON_ABI,
+        functionName: 'withdraw',
+        args: [amountIn],
+      }),
+      value: 0n,
+      targetContract: WMON_ADDRESS,
+    };
+  }
+  
   if (dex === 'nadfun' || (routes.length === 1 && routes[0]?.dexId === 3)) {
     const isBuy = isNativeMON(tokenIn);
     const isSell = isNativeMON(tokenOut) || isWMON(tokenOut);

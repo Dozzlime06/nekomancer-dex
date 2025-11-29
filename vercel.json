@@ -1,11 +1,6 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist/public",
-  "functions": {
-    "api/*.ts": {
-      "runtime": "@vercel/node@3.0.0"
-    }
-  },
   "rewrites": [
     { "source": "/api/tokens", "destination": "/api/tokens" },
     { "source": "/api/quote", "destination": "/api/quote" },

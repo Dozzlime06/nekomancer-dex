@@ -209,14 +209,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Determine if this is a buy (MON→Token) or sell (Token→MON)
     const isBuyingToken = fromAddr.toLowerCase() === WMON.toLowerCase();
     const targetToken = isBuyingToken ? toAddr : fromAddr;
+    
+    // Check if token is a Nad.Fun token (ends in 7777)
+    const isNadFunToken = targetToken.toLowerCase().endsWith('7777');
 
     const quotes: QuoteResult[] = [];
 
     // Get all quotes in parallel
     const [uniV2, pancakeV2, uniV3, nadFun] = await Promise.all([
-      getV2Quote(client, UNISWAP_V2_ROUTER, 'Uniswap V2', 0, fromAddr, toAddr, inputAmount),
-      getV2Quote(client, PANCAKE_V2_ROUTER, 'PancakeSwap V2', 1, fromAddr, toAddr, inputAmount),
-      getV3Quote(client, fromAddr, toAddr, inputAmount),
+      // Skip V2/V3 for Nad.Fun tokens - they should only use Nad.Fun DEX
+      isNadFunToken ? Promise.resolve(null) : getV2Quote(client, UNISWAP_V2_ROUTER, 'Uniswap V2', 0, fromAddr, toAddr, inputAmount),
+      isNadFunToken ? Promise.resolve(null) : getV2Quote(client, PANCAKE_V2_ROUTER, 'PancakeSwap V2', 1, fromAddr, toAddr, inputAmount),
+      isNadFunToken ? Promise.resolve(null) : getV3Quote(client, fromAddr, toAddr, inputAmount),
       // Only check Nad.Fun for MON↔Token swaps (not Token↔Token)
       (fromAddr.toLowerCase() === WMON.toLowerCase() || toAddr.toLowerCase() === WMON.toLowerCase())
         ? getNadFunQuote(client, targetToken, inputAmount, isBuyingToken)
@@ -227,6 +231,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (pancakeV2) quotes.push(pancakeV2);
     if (uniV3) quotes.push(uniV3);
     if (nadFun) quotes.push(nadFun);
+    
+    console.log('[PATHFINDER] Token check:', { targetToken, isNadFunToken, quotesCount: quotes.length });
 
     if (quotes.length === 0) {
       return res.status(200).json({

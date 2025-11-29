@@ -153,21 +153,25 @@ export default function Swap() {
   useEffect(() => {
     const fetchTokens = async () => {
       try {
+        console.log('[SWAP] Fetching tokens, hasInitialized:', hasInitialized);
         if (!hasInitialized) setTokensLoading(true);
         const response = await fetch('/api/tokens?chainId=143&t=' + Date.now());
+        console.log('[SWAP] Token response status:', response.status);
         if (response.ok) {
           const fetchedTokens = await response.json();
+          console.log('[SWAP] Fetched tokens count:', fetchedTokens.length);
           setTokens(fetchedTokens);
           
           // Set default tokens only on first load when not yet initialized
           if (!hasInitialized && fetchedTokens.length >= 2) {
+            console.log('[SWAP] Setting default tokens:', fetchedTokens[0]?.symbol, fetchedTokens[1]?.symbol);
             setFromToken(fetchedTokens[0]);
             setToToken(fetchedTokens[1]);
             setHasInitialized(true);
           }
         }
       } catch (error) {
-        console.error('Error fetching tokens:', error);
+        console.error('[SWAP] Error fetching tokens:', error);
       } finally {
         setTokensLoading(false);
       }

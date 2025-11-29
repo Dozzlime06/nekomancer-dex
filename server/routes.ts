@@ -1921,13 +1921,13 @@ export async function registerRoutes(
   // Get referral stats
   app.get("/api/referral/stats", async (req, res) => {
     try {
-      const { walletAddress } = req.query;
+      const wallet = (req.query.wallet || req.query.walletAddress) as string;
 
-      if (!walletAddress || typeof walletAddress !== 'string') {
+      if (!wallet) {
         return res.status(400).json({ message: 'Wallet address required' });
       }
 
-      const referral = await storage.getReferralByWallet(walletAddress);
+      const referral = await storage.getReferralByWallet(wallet);
       if (!referral) {
         return res.json({
           code: null,
@@ -1938,7 +1938,7 @@ export async function registerRoutes(
         });
       }
 
-      const stats = await storage.getReferralStats(walletAddress);
+      const stats = await storage.getReferralStats(wallet);
 
       res.json({
         code: referral.code,

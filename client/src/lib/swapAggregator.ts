@@ -262,11 +262,16 @@ export function getSwapFunctionData(params: SwapParams): { data: `0x${string}`; 
     monPriceUSD = 0,
     fromTokenDecimals = 18,
     dex = '',
-    isV3 = false,
-    v3Fee = 3000,
     userAddress,
     routes = []
   } = params;
+  
+  // Detect V3 from routes (dexId 2 = Uniswap V3) or from dex string
+  const v3Route = routes.find(r => r.dexId === 2);
+  const isV3 = params.isV3 || !!v3Route || dex.toLowerCase().includes('v3');
+  const v3Fee = v3Route?.v3Fee || params.v3Fee || 3000;
+  
+  console.log('[SWAP_DATA] V3 detection:', { isV3, v3Fee, dex, routeDexIds: routes.map(r => r.dexId) });
   
   // Handle wrap/unwrap FIRST (before nadfun check)
   if (isNativeMON(tokenIn) && isWMON(tokenOut)) {

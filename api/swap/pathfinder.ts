@@ -102,38 +102,46 @@ async function getV3Quote(client: any, tokenIn: string, tokenOut: string, amount
 
 async function getNadFunQuote(client: any, token: string, amountIn: bigint, isBuy: boolean): Promise<QuoteResult | null> {
   try {
-    // First check if token is graduated - graduated tokens use V3, not Nad.Fun bonding
-    const isGraduated = await client.readContract({
-      address: NADFUN_LENS as `0x${string}`,
-      abi: NADFUN_LENS_ABI,
-      functionName: 'isGraduated',
-      args: [token as `0x${string}`],
-    }).catch(() => false);
+    // Get quote and graduation status from Nad.Fun LENS
+    const [quoteResult, isGraduated] = await Promise.all([
+      client.readContract({
+        address: NADFUN_LENS as `0x${string}`,
+        abi: NADFUN_LENS_ABI,
+        functionName: 'getAmountOut',
+        args: [token as `0x${string}`, amountIn, isBuy],
+      }),
+      client.readContract({
+        address: NADFUN_LENS as `0x${string}`,
+        abi: NADFUN_LENS_ABI,
+        functionName: 'isGraduated',
+        args: [token as `0x${string}`],
+      }).catch(() => false),
+    ]);
     
-    // Skip Nad.Fun for graduated tokens - they should use V3
-    if (isGraduated) {
-      console.log('[NADFUN] Token is graduated, skipping Nad.Fun quote:', token);
-      return null;
-    }
+    // getAmountOut returns (router, amountOut)
+    const router = (quoteResult as any)[0] as string;
+    const amountOut = (quoteResult as any)[1] as bigint;
     
-    const quoteResult = await client.readContract({
-      address: NADFUN_LENS as `0x${string}`,
-      abi: NADFUN_LENS_ABI,
-      functionName: 'getAmountOut',
-      args: [token as `0x${string}`, amountIn, isBuy],
+    console.log('[NADFUN] Quote result:', { 
+      token, 
+      router, 
+      amountOut: amountOut.toString(), 
+      isGraduated,
+      isBuy 
     });
     
-    const amountOut = (quoteResult as any)[1] as bigint;
     if (amountOut > 0n) {
       return {
         dex: 'Nad.Fun',
         dexId: 3,
         amountOut,
         path: isBuy ? [WMON, token] : [token, WMON],
-        isGraduated: false,
+        isGraduated: isGraduated as boolean,
       };
     }
-  } catch {}
+  } catch (e: any) {
+    console.log('[NADFUN] Quote error:', e.message);
+  }
   return null;
 }
 

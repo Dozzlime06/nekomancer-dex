@@ -1,9 +1,14 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": "dist/public",
-  "framework": "vite",
+  "functions": {
+    "api/*.ts": {
+      "runtime": "@vercel/node@3.0.0"
+    }
+  },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/api/tokens", "destination": "/api/tokens" },
+    { "source": "/api/quote", "destination": "/api/quote" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

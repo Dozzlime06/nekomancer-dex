@@ -2,17 +2,52 @@
 
 ## DEPLOYED TO MONAD MAINNET (Chain 143)
 
-### SwapAggregatorV16 (UUPS Upgradeable) - LIVE ON MONAD ✅✅✅
+### SwapAggregatorV31 (UUPS Upgradeable) - LIVE ON MONAD ✅
 - **Proxy (PERMANENT):** `0x6524822e437dcd23d62c77496d7a0ac980fbc81d`
-- **Implementation (V16):** `0x603eD9DF4F10E70a9bFE2387B36d35bDf97e18e9` (Block 38,583,094)
-- **Status:** Active on Monad Mainnet (Chain 143) - V3 MULTICALL FIX DEPLOYED
-- **Features:** Full V2, V3, Nad.Fun support with split-route capability
-- **V16 MAJOR FIX - Correct SwapRouter02 multicall pattern:**
-  1. SwapRouter02 uses `multicall(deadline, bytes[])` - NOT deadline in struct
-  2. ExactInputSingleParams has NO deadline field (SwapRouter02 format)
-  3. All V3 swaps now use: `multicall(deadline, [exactInputSingle(...), unwrapWETH9(...)])`
-  4. Token→MON uses `recipient: address(2)` (ADDRESS_THIS) then unwrapWETH9
-- **Deployment Date:** Nov 28, 2025, 4:33 PM - V16 DEPLOYED
+- **Implementation (V31):** `0x831Db236603F0b4c34c47aFc634782D6C5362C50`
+- **Upgrade TX:** `0xf3d19788753f9701663a8baf93a436cf2907e95bd12b8cd4c305b3cd9d08834b`
+- **Status:** LIVE on Monad Mainnet (Chain 143)
+- **V31 FIX:** DEX Router returns native MON, not WMON - now tracking address(this).balance for graduated token sells
+- **V30 NEW FEATURES:**
+  1. **Multi-Hop Routing:** Token A → WMON → Token B (shitcoin to shitcoin swaps!)
+  2. **Multi-Recipient Fee Distribution:** Pass fee recipients as function parameters
+  3. **Custom Fee Splits:** Platform, Staking, Referrer with custom percentages
+- **V30 New Functions:**
+  - `swapTokensForTokens(tokenIn, tokenOut, amountIn, minOut, deadline, feeIn, feeOut)` - Multi-hop swap
+  - `swapTokensWithFees(tokenIn, tokenOut, amountIn, minOut, deadline, feeIn, feeOut, feeRecipients[])` - Multi-hop with custom fees
+  - `swapMONForTokensWithFees(tokenOut, minOut, deadline, v3Fee, feeRecipients[])` - Buy with custom fees
+  - `swapTokensForMONWithFees(tokenIn, amountIn, minOut, deadline, v3Fee, feeRecipients[])` - Sell with custom fees
+  - `nadFunSellWithFees(token, amountIn, minOut, deadline, v3Fee, feeRecipients[])` - Nad.Fun sell with custom fees
+- **FeeRecipient Struct:** `{ address recipient, uint256 bps }`
+- **Example Fee Split:** `[(platform, 5000), (staking, 3000), (referrer, 2000)]` = 50% platform, 30% staking, 20% referrer
+- **API Endpoints:**
+  - `POST /api/swap/pathfinder` - Find best direct route
+  - `POST /api/swap/multihop` - Find best multi-hop route for token-to-token swaps
+
+### SwapAggregatorV29 (UUPS Upgradeable) - PREVIOUS
+- **Implementation (V29):** `0x640B7aB4753c5D4a02A0a84910d558BF60a5C770`
+- **Features:** Fee Splitter - receives Nad.Fun referrer fees and splits 50/50
+- **V29 Functions:** `distributeReferrerFees()`, `pendingReferrerFees()`, `receive() external payable`
+- **Nad.Fun Router Calls (Direct from Frontend):**
+  - Bonding Router: `0x6F6B8F1a20703309951a5127c45B49b1CD981A22` (unbonded tokens)
+  - DEX Router: `0x0B79d71AE99528D1dB24A4148b5f4F865cc2b137` (graduated tokens)
+  - Referrer: `0x6524822e437dcd23d62c77496d7a0ac980fbc81d` (aggregator = fee splitter)
+
+### SwapAggregatorV27 (UUPS Upgradeable) - PREVIOUS
+- **Implementation (V27):** `0xd923cC20883834B976509c283C9d32791fED17fB`
+- **Upgrade TX:** `0xbe8ca6c6f16cf32fbc09af073f14a82884df283991c728387348d8f134683928`
+- **Features:** Full V2, V3, Nad.Fun support with intelligent DEX Router vs V3 routing
+- **V27 FIX - InvalidAmountOut:**
+  1. Root cause: grossMin calculation was scaling UP minOut before passing to DEX Router
+  2. If price dropped between quote and execution, grossMin > actual output → InvalidAmountOut
+  3. FIX: Pass amountOutMin=1 to DEX Router, let swap execute at market price
+  4. Slippage protection applied AFTER swap via minOut check in fee distribution
+- **V26 Features (included):**
+  1. DEX Router uses standard ERC20 approval (not Permit2)
+  2. Correct routing for graduated Nad.Fun tokens
+- **V21 Fixes (included):**
+  1. DEX Router returns WMON, not MON - now unwrapping properly
+  2. Tracks WMON balance before/after DEX Router call
 - **TESTED & CONFIRMED WORKING:**
   - ✅ MON→WETH V3: TX 0x52d341d2a56d12a4cc423cbbabfca13326c29717a9a7c5b2b886382516395fa0
   - ✅ WETH→MON V3: TX 0xbf5664dc9d45b0a817d69bf9e835c91b82b72cdef90a4b7e38deed1b24ddfb2c
@@ -105,6 +140,19 @@ To set MANCER token:
 StakingVault(proxyAddress).setStakingToken(mancerTokenAddress);
 ```
 
-## Deployment Date
-November 28, 2025 - SwapAggregatorV4 & StakingVault (UUPS Upgradeable) deployed to Monad mainnet
-V11 in development - fixes SwapRouter02 multicall interface issue
+## Deployment Timeline
+- **November 28, 2025** - SwapAggregatorV4 & StakingVault (UUPS Upgradeable) deployed
+- **November 29, 2025** - V28 Deployed with DEX Router Fallback + 1% Fee Collection
+  - Implementation: `0x8567E426153CF3afEFb93D6E43cEB4b857ae78E2`
+  - Proxy (Permanent): `0x6524822e437dcd23d62c77496d7a0ac980fbc81d`
+  - **LIVE:** Graduated token sells now collect 1% platform fee via aggregator
+
+## How to Sell Graduated Tokens (V28)
+1. User approves aggregator for token amount
+2. User calls `nadFunSell(token, amountIn, minOut, deadline)`
+3. Aggregator automatically:
+   - Checks V3 pool liquidity
+   - Routes to DEX Router if better price
+   - Deducts 1% platform fee
+   - Sends remaining MON to user
+4. **Result:** User gets ~99% in MON, Platform collects 1% fee

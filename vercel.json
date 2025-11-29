@@ -8,6 +8,10 @@
     { "source": "/api/leaderboard", "destination": "/api/leaderboard" },
     { "source": "/api/swap/pathfinder", "destination": "/api/swap/pathfinder" },
     { "source": "/api/swaps/record", "destination": "/api/swaps/record" },
+    { "source": "/api/referral/lookup", "destination": "/api/referral/lookup" },
+    { "source": "/api/referral/generate", "destination": "/api/referral/generate" },
+    { "source": "/api/referral/stats", "destination": "/api/referral/stats" },
+    { "source": "/api/referral/claim", "destination": "/api/referral/claim" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

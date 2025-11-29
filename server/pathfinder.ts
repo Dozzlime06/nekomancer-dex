@@ -182,39 +182,42 @@ async function getAllQuotes(
   const targetToken = actualTokenIn.toLowerCase() === WMON.toLowerCase() ? actualTokenOut : actualTokenIn;
   const isBuyingToken = actualTokenIn.toLowerCase() === WMON.toLowerCase();
   
-  // V3-ONLY tokens - skip V2 and Nad.Fun for these tokens (better liquidity on V3)
-  const V3_ONLY_TOKENS = [
-    '0x350035555e10d9afaf1566aaebfced5ba6c27777', // CHOG
-  ];
-  const isV3OnlyToken = V3_ONLY_TOKENS.includes(targetToken.toLowerCase());
+  // NAD.FUN ONLY tokens - tokens ending in 7777 are Nad.Fun tokens and should ONLY use Nad.Fun DEX
+  // Skip V2/V3 for these tokens to avoid wrong pricing
+  const isNadFunOnlyToken = targetToken.toLowerCase().endsWith('7777');
+  console.log(`[PATHFINDER] Token: ${targetToken}, isNadFunOnlyToken: ${isNadFunOnlyToken}`);
 
-  // 1. V3 PRIORITY - Check ALL Uniswap V3 fee tiers and keep the BEST
-  const v3Quotes: { fee: number; amountOut: bigint }[] = [];
-  await Promise.all(
-    V3_FEE_TIERS.map(async (fee) => {
-      try {
-        const v3Quote = await getV3Quote(actualTokenIn, actualTokenOut, amountIn, fee);
-        if (v3Quote > 0n) {
-          v3Quotes.push({ fee, amountOut: v3Quote });
-        }
-      } catch {}
-    })
-  );
-  
-  if (v3Quotes.length > 0) {
-    const bestV3 = v3Quotes.reduce((best, curr) => curr.amountOut > best.amountOut ? curr : best);
-    quotes.push({
-      dexId: 2,
-      dexName: `Uniswap V3 (${bestV3.fee / 100 === 1 ? '0.01' : bestV3.fee / 100 === 5 ? '0.05' : bestV3.fee / 100 === 30 ? '0.3' : '1'}%)`,
-      amountOut: bestV3.amountOut,
-      v3Fee: bestV3.fee,
-      isGraduated: false,
-      hasLiquidity: true,
-    });
+  // 1. V3 - Check ALL Uniswap V3 fee tiers (SKIP for Nad.Fun tokens ending in 7777)
+  if (!isNadFunOnlyToken) {
+    const v3Quotes: { fee: number; amountOut: bigint }[] = [];
+    await Promise.all(
+      V3_FEE_TIERS.map(async (fee) => {
+        try {
+          const v3Quote = await getV3Quote(actualTokenIn, actualTokenOut, amountIn, fee);
+          if (v3Quote > 0n) {
+            v3Quotes.push({ fee, amountOut: v3Quote });
+          }
+        } catch {}
+      })
+    );
+    
+    if (v3Quotes.length > 0) {
+      const bestV3 = v3Quotes.reduce((best, curr) => curr.amountOut > best.amountOut ? curr : best);
+      quotes.push({
+        dexId: 2,
+        dexName: `Uniswap V3 (${bestV3.fee / 100 === 1 ? '0.01' : bestV3.fee / 100 === 5 ? '0.05' : bestV3.fee / 100 === 30 ? '0.3' : '1'}%)`,
+        amountOut: bestV3.amountOut,
+        v3Fee: bestV3.fee,
+        isGraduated: false,
+        hasLiquidity: true,
+      });
+    }
+  } else {
+    console.log(`[PATHFINDER] Nad.Fun token detected (ends in 7777): ${targetToken.substring(0,10)}... - skipping V3`);
   }
 
-  // 2. Check V2 DEXes in parallel (skip for V3-only tokens)
-  if (!isV3OnlyToken) {
+  // 2. Check V2 DEXes in parallel (SKIP for Nad.Fun tokens ending in 7777)
+  if (!isNadFunOnlyToken) {
     const [uniV2Quote, pancakeQuote] = await Promise.all([
       getV2Quote(UNISWAP_V2, actualTokenIn, actualTokenOut, amountIn).catch(() => 0n),
       getV2Quote(PANCAKE_V2, actualTokenIn, actualTokenOut, amountIn).catch(() => 0n),
@@ -242,11 +245,11 @@ async function getAllQuotes(
       });
     }
   } else {
-    console.log(`[PATHFINDER] V3-only token detected: ${targetToken.substring(0,10)}... - skipping V2`);
+    console.log(`[PATHFINDER] Nad.Fun token detected (ends in 7777): ${targetToken.substring(0,10)}... - skipping V2`);
   }
 
-  // 3. Check Nad.Fun for any non-WMON token (skip for V3-only tokens)
-  if (!isV3OnlyToken && targetToken.toLowerCase() !== WMON.toLowerCase()) {
+  // 3. Check Nad.Fun for any non-WMON token (ALWAYS check for Nad.Fun tokens)
+  if (targetToken.toLowerCase() !== WMON.toLowerCase()) {
     try {
       console.log(`[NADFUN] Checking token ${targetToken}, isBuy: ${isBuyingToken}`);
       const nadFunResult = await getNadFunQuote(targetToken, amountIn, isBuyingToken);

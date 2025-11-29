@@ -21,6 +21,7 @@ export interface SwapRoute {
   percentage: number;
   v3Fee: number;
   isGraduated: boolean;
+  useDexRouter?: boolean;
 }
 
 export interface PathfinderResult {
@@ -38,6 +39,7 @@ interface DexQuote {
   amountOut: bigint;
   v3Fee: number;
   isGraduated: boolean;
+  useDexRouter?: boolean;
   hasLiquidity: boolean;
 }
 
@@ -126,7 +128,32 @@ async function getMultiHopV3Quote(tokenIn: string, tokenOut: string, amountIn: b
   }
 }
 
-async function getNadFunQuote(token: string, amountIn: bigint, isBuy: boolean): Promise<{ amountOut: bigint; isGraduated: boolean; v3Fee: number }> {
+async function getV3PoolLiquidity(token: string, fee: number): Promise<{ pool: string; liquidity: bigint }> {
+  try {
+    const pool = await client.readContract({
+      address: UNISWAP_V3_FACTORY as `0x${string}`,
+      abi: v3FactoryAbi,
+      functionName: 'getPool',
+      args: [token as `0x${string}`, WMON as `0x${string}`, fee],
+    });
+    
+    if (pool === '0x0000000000000000000000000000000000000000') {
+      return { pool: '', liquidity: 0n };
+    }
+    
+    const liquidity = await client.readContract({
+      address: pool as `0x${string}`,
+      abi: v3PoolAbi,
+      functionName: 'liquidity',
+    });
+    
+    return { pool, liquidity };
+  } catch {
+    return { pool: '', liquidity: 0n };
+  }
+}
+
+async function getNadFunQuote(token: string, amountIn: bigint, isBuy: boolean): Promise<{ amountOut: bigint; isGraduated: boolean; v3Fee: number; useDexRouter: boolean }> {
   try {
     const isGraduated = await client.readContract({
       address: NADFUN_LENS as `0x${string}`,
@@ -136,22 +163,71 @@ async function getNadFunQuote(token: string, amountIn: bigint, isBuy: boolean): 
     });
 
     if (isGraduated) {
-      // Try Nad.Fun DEX factory first for graduated tokens
+      // V26 FIX: Check BOTH V3 pool liquidity AND Nad.Fun Lens quote
+      // Use whichever gives better output
+      
+      // 1. Get Nad.Fun Lens quote (routes through DEX Router to main pool)
+      let nadFunLensQuote = 0n;
+      try {
+        const lensResult = await client.readContract({
+          address: NADFUN_LENS as `0x${string}`,
+          abi: nadFunLensAbi,
+          functionName: 'getAmountOut',
+          args: [token as `0x${string}`, amountIn, isBuy],
+        });
+        nadFunLensQuote = lensResult[1];
+        console.log(`[NADFUN] Lens quote for graduated token: ${nadFunLensQuote}`);
+      } catch (e) {
+        console.log(`[NADFUN] Lens quote failed: ${e}`);
+      }
+      
+      // 2. Check V3 pools with liquidity check
+      let bestV3Quote = 0n;
+      let bestV3Fee = 0;
+      let bestV3Liquidity = 0n;
+      
       for (const fee of V3_FEE_TIERS) {
-        const quote = await getV3Quote(isBuy ? WMON : token, isBuy ? token : WMON, amountIn, fee, NADFUN_DEX_FACTORY);
-        if (quote > 0n) {
-          return { amountOut: quote, isGraduated: true, v3Fee: fee };
+        const { pool, liquidity } = await getV3PoolLiquidity(token, fee);
+        if (pool && liquidity > 0n) {
+          // Only get quote if pool has meaningful liquidity (> 1e15 = 0.001 WMON worth)
+          if (liquidity > 1000000000000000n) {
+            const quote = await getV3Quote(isBuy ? WMON : token, isBuy ? token : WMON, amountIn, fee, UNISWAP_V3_FACTORY);
+            console.log(`[NADFUN] V3 fee=${fee} liquidity=${liquidity} quote=${quote}`);
+            if (quote > bestV3Quote) {
+              bestV3Quote = quote;
+              bestV3Fee = fee;
+              bestV3Liquidity = liquidity;
+            }
+          } else {
+            console.log(`[NADFUN] V3 fee=${fee} liquidity=${liquidity} TOO LOW - skipping`);
+          }
         }
       }
-      // Also try Uniswap V3 factory for graduated tokens
-      for (const fee of V3_FEE_TIERS) {
-        const quote = await getV3Quote(isBuy ? WMON : token, isBuy ? token : WMON, amountIn, fee, UNISWAP_V3_FACTORY);
-        if (quote > 0n) {
-          return { amountOut: quote, isGraduated: true, v3Fee: fee };
-        }
+      
+      // 3. Compare and choose best option
+      // Prefer Nad.Fun Lens if it gives >= 90% of V3 quote (accounts for routing differences)
+      // OR if V3 has very low liquidity
+      const MIN_V3_LIQUIDITY = 10000000000000000000n; // 10 WMON worth of liquidity
+      
+      if (nadFunLensQuote > 0n) {
+        // V28 FIX: Use ONLY Lens quote for graduated tokens
+        // V3 pools don't have real Nad.Fun liquidity - actual price is in Lens/DEX Router
+        // Return Lens quote which reflects true market price through Nad.Fun routing
+        console.log(`[NADFUN] Using Lens quote for graduated: ${nadFunLensQuote} (ignoring V3 pools which have wrong liquidity)`);
+        return { amountOut: nadFunLensQuote, isGraduated: true, v3Fee: 0, useDexRouter: true };
       }
+      
+      // Fallback to V3 if Lens failed
+      if (bestV3Quote > 0n) {
+        console.log(`[NADFUN] Lens failed, using V3 pool: fee=${bestV3Fee}, quote=${bestV3Quote}`);
+        return { amountOut: bestV3Quote, isGraduated: true, v3Fee: bestV3Fee, useDexRouter: false };
+      }
+      
+      console.log(`[NADFUN] No valid quote for graduated token ${token}`);
+      return { amountOut: 0n, isGraduated: true, v3Fee: 0, useDexRouter: false };
     }
 
+    // Non-graduated tokens use bonding curve
     const result = await client.readContract({
       address: NADFUN_LENS as `0x${string}`,
       abi: nadFunLensAbi,
@@ -159,9 +235,9 @@ async function getNadFunQuote(token: string, amountIn: bigint, isBuy: boolean): 
       args: [token as `0x${string}`, amountIn, isBuy],
     });
 
-    return { amountOut: result[1], isGraduated, v3Fee: 0 };
+    return { amountOut: result[1], isGraduated, v3Fee: 0, useDexRouter: false };
   } catch {
-    return { amountOut: 0n, isGraduated: false, v3Fee: 0 };
+    return { amountOut: 0n, isGraduated: false, v3Fee: 0, useDexRouter: false };
   }
 }
 
@@ -253,14 +329,15 @@ async function getAllQuotes(
     try {
       console.log(`[NADFUN] Checking token ${targetToken}, isBuy: ${isBuyingToken}`);
       const nadFunResult = await getNadFunQuote(targetToken, amountIn, isBuyingToken);
-      console.log(`[NADFUN] Result: amountOut=${nadFunResult.amountOut}, isGraduated=${nadFunResult.isGraduated}`);
+      console.log(`[NADFUN] Result: amountOut=${nadFunResult.amountOut}, isGraduated=${nadFunResult.isGraduated}, useDexRouter=${nadFunResult.useDexRouter}`);
       if (nadFunResult.amountOut > 0n) {
         quotes.push({
           dexId: 3,
-          dexName: nadFunResult.isGraduated ? 'Nad.Fun (Graduated)' : 'Nad.Fun (Bonding)',
+          dexName: nadFunResult.isGraduated ? (nadFunResult.useDexRouter ? 'Nad.Fun (DEX Router)' : 'Nad.Fun (Graduated)') : 'Nad.Fun (Bonding)',
           amountOut: nadFunResult.amountOut,
           v3Fee: nadFunResult.v3Fee,
           isGraduated: nadFunResult.isGraduated,
+          useDexRouter: nadFunResult.useDexRouter,
           hasLiquidity: true,
         });
       }
@@ -295,6 +372,7 @@ function calculateOptimalSplit(
       percentage: 100,
       v3Fee: q.v3Fee,
       isGraduated: q.isGraduated,
+      useDexRouter: q.useDexRouter,
     }];
   }
 
@@ -315,6 +393,7 @@ function calculateOptimalSplit(
       percentage: 100,
       v3Fee: bestQuote.v3Fee,
       isGraduated: bestQuote.isGraduated,
+      useDexRouter: bestQuote.useDexRouter,
     }];
   }
 
@@ -337,6 +416,7 @@ function calculateOptimalSplit(
       percentage: pct,
       v3Fee: q.v3Fee,
       isGraduated: q.isGraduated,
+      useDexRouter: q.useDexRouter,
     });
   }
 
@@ -476,4 +556,165 @@ export async function isNadFunToken(token: string): Promise<{ isNadFun: boolean;
   } catch {
     return { isNadFun: false, isGraduated: false, v3Fee: 0 };
   }
+}
+
+// ============ MULTI-HOP PATHFINDING (V30) ============
+
+export interface MultiHopRoute {
+  tokenIn: string;
+  tokenOut: string;
+  intermediate: string;
+  amountIn: string;
+  expectedOut: string;
+  minOut: string;
+  feeIn: number;   // V3 fee for first hop (0 = V2)
+  feeOut: number;  // V3 fee for second hop (0 = V2)
+  hopType: 'direct' | 'multihop';
+  path: string[];
+  priceImpact: number;
+}
+
+async function getMultiHopQuote(
+  tokenIn: string,
+  tokenOut: string,
+  amountIn: bigint,
+  intermediate: string,
+  feeIn: number,
+  feeOut: number
+): Promise<{ amountOut: bigint; feeIn: number; feeOut: number }> {
+  try {
+    let hop1Out: bigint;
+    
+    // First hop: tokenIn → intermediate
+    if (feeIn > 0) {
+      hop1Out = await getV3Quote(tokenIn, intermediate, amountIn, feeIn);
+    } else {
+      hop1Out = await getV2Quote(UNISWAP_V2, tokenIn, intermediate, amountIn);
+      if (hop1Out === 0n) {
+        hop1Out = await getV2Quote(PANCAKE_V2, tokenIn, intermediate, amountIn);
+      }
+    }
+    
+    if (hop1Out === 0n) return { amountOut: 0n, feeIn: 0, feeOut: 0 };
+    
+    // Second hop: intermediate → tokenOut
+    let hop2Out: bigint;
+    if (feeOut > 0) {
+      hop2Out = await getV3Quote(intermediate, tokenOut, hop1Out, feeOut);
+    } else {
+      hop2Out = await getV2Quote(UNISWAP_V2, intermediate, tokenOut, hop1Out);
+      if (hop2Out === 0n) {
+        hop2Out = await getV2Quote(PANCAKE_V2, intermediate, tokenOut, hop1Out);
+      }
+    }
+    
+    console.log(`[MULTIHOP] ${tokenIn.slice(0,8)}→${intermediate.slice(0,8)}→${tokenOut.slice(0,8)} = ${hop2Out}`);
+    return { amountOut: hop2Out, feeIn, feeOut };
+  } catch (e) {
+    console.log(`[MULTIHOP] Error: ${e}`);
+    return { amountOut: 0n, feeIn: 0, feeOut: 0 };
+  }
+}
+
+export async function findMultiHopPath(
+  tokenIn: string,
+  tokenOut: string,
+  amountIn: string,
+  slippageBps: number = 100,
+  tokenInDecimals: number = 18
+): Promise<MultiHopRoute | null> {
+  const NATIVE_MON = '0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE';
+  const isNativeMONIn = tokenIn.toLowerCase() === NATIVE_MON.toLowerCase();
+  const isNativeMONOut = tokenOut.toLowerCase() === NATIVE_MON.toLowerCase();
+  
+  // If either token is MON, use direct routing (not multi-hop)
+  if (isNativeMONIn || isNativeMONOut || 
+      tokenIn.toLowerCase() === WMON.toLowerCase() || 
+      tokenOut.toLowerCase() === WMON.toLowerCase()) {
+    console.log('[MULTIHOP] Skipping - one token is MON/WMON, use direct routing');
+    return null;
+  }
+  
+  const amountInWei = parseUnits(amountIn, tokenInDecimals);
+  console.log(`[MULTIHOP] Finding path ${tokenIn.slice(0,10)}→${tokenOut.slice(0,10)} amt=${amountIn}`);
+  
+  // Try different intermediates and fee combinations
+  const intermediates = [WMON]; // WMON is the main intermediate on Monad
+  const feeTiers = [0, 500, 3000, 10000]; // 0 = V2, others = V3
+  
+  let bestRoute: { amountOut: bigint; intermediate: string; feeIn: number; feeOut: number } | null = null;
+  
+  for (const intermediate of intermediates) {
+    for (const feeIn of feeTiers) {
+      for (const feeOut of feeTiers) {
+        const result = await getMultiHopQuote(tokenIn, tokenOut, amountInWei, intermediate, feeIn, feeOut);
+        
+        if (result.amountOut > 0n && (!bestRoute || result.amountOut > bestRoute.amountOut)) {
+          bestRoute = {
+            amountOut: result.amountOut,
+            intermediate,
+            feeIn: result.feeIn,
+            feeOut: result.feeOut
+          };
+        }
+      }
+    }
+  }
+  
+  if (!bestRoute || bestRoute.amountOut === 0n) {
+    console.log('[MULTIHOP] No valid route found');
+    return null;
+  }
+  
+  // Apply fee (1%)
+  const feeBps = 100n;
+  const afterFee = bestRoute.amountOut - (bestRoute.amountOut * feeBps / 10000n);
+  const minOut = (afterFee * BigInt(10000 - slippageBps)) / 10000n;
+  
+  // Estimate price impact
+  const amountInMON = Number(amountInWei) / 1e18;
+  let priceImpact = amountInMON > 100 ? Math.min(2, amountInMON / 100 * 0.2) : 0.1;
+  
+  return {
+    tokenIn,
+    tokenOut,
+    intermediate: bestRoute.intermediate,
+    amountIn: amountInWei.toString(),
+    expectedOut: afterFee.toString(),
+    minOut: minOut.toString(),
+    feeIn: bestRoute.feeIn,
+    feeOut: bestRoute.feeOut,
+    hopType: 'multihop',
+    path: [tokenIn, bestRoute.intermediate, tokenOut],
+    priceImpact: Math.round(priceImpact * 100) / 100
+  };
+}
+
+export async function findBestTokenToTokenPath(
+  tokenIn: string,
+  tokenOut: string,
+  amountIn: string,
+  slippageBps: number = 100,
+  tokenInDecimals: number = 18
+): Promise<{ multiHop: MultiHopRoute | null; direct: PathfinderResult | null; recommendation: 'multihop' | 'direct' | 'none' }> {
+  console.log(`[PATHFINDER] Token-to-token: ${tokenIn.slice(0,10)}→${tokenOut.slice(0,10)}`);
+  
+  // Try multi-hop through WMON
+  const multiHop = await findMultiHopPath(tokenIn, tokenOut, amountIn, slippageBps, tokenInDecimals);
+  
+  // Check if there's a direct pair (unlikely for shitcoins)
+  // For now, recommend multi-hop if it has a valid route
+  if (multiHop && BigInt(multiHop.expectedOut) > 0n) {
+    return {
+      multiHop,
+      direct: null,
+      recommendation: 'multihop'
+    };
+  }
+  
+  return {
+    multiHop: null,
+    direct: null,
+    recommendation: 'none'
+  };
 }

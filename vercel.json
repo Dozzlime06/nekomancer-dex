@@ -4,6 +4,7 @@
   "rewrites": [
     { "source": "/api/tokens", "destination": "/api/tokens" },
     { "source": "/api/quote", "destination": "/api/quote" },
+    { "source": "/api/balance", "destination": "/api/balance" },
     { "source": "/api/swap/pathfinder", "destination": "/api/swap/pathfinder" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]

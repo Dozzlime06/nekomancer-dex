@@ -936,6 +936,33 @@ export default function Swap() {
                             </div>
                           )}
                           
+                          {/* Dynamic Slippage Recommendation based on Price Impact */}
+                          {parseFloat(priceImpact) > 0 && (
+                            <div className="p-2 bg-primary/10 border border-primary/20 rounded-lg">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <TrendingUp className="w-4 h-4 text-primary" />
+                                  <span className="text-xs text-primary">
+                                    Recommended: {Math.max(1, Math.ceil(parseFloat(priceImpact) + 0.5))}%
+                                  </span>
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    const recommended = Math.max(1, Math.ceil(parseFloat(priceImpact) + 0.5));
+                                    setSlippage(recommended);
+                                    setCustomSlippage("");
+                                  }}
+                                  className="px-2 py-1 text-xs bg-primary text-black rounded font-semibold hover:bg-primary/80 transition-colors"
+                                >
+                                  Apply
+                                </button>
+                              </div>
+                              <div className="text-[10px] text-muted-foreground mt-1">
+                                Based on {parseFloat(priceImpact).toFixed(2)}% price impact
+                              </div>
+                            </div>
+                          )}
+                          
                         </motion.div>
                       )}
                     </AnimatePresence>

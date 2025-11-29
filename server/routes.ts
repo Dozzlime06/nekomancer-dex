@@ -1515,20 +1515,46 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Missing required fields" });
       }
 
-      await recordSwapToSheet({
-        txHash,
-        walletAddress,
-        tokenIn,
-        tokenInSymbol: tokenInSymbol || '',
-        tokenOut,
-        tokenOutSymbol: tokenOutSymbol || '',
-        amountIn: amountIn || '0',
-        amountOut: amountOut || '0',
-        volumeMon: volumeMon || '0',
-        dex: dex || 'unknown',
-      });
+      // Save to PostgreSQL database (primary)
+      try {
+        await storage.recordSwap({
+          txHash,
+          walletAddress: walletAddress.toLowerCase(),
+          tokenIn: tokenIn.toLowerCase(),
+          tokenInSymbol: tokenInSymbol || '',
+          tokenOut: tokenOut.toLowerCase(),
+          tokenOutSymbol: tokenOutSymbol || '',
+          amountIn: amountIn || '0',
+          amountOut: amountOut || '0',
+          volumeMon: volumeMon || '0',
+          dex: dex || 'unknown',
+        });
+        console.log(`[ROUTES] Recorded swap to DB: ${txHash.slice(0, 10)}... volume=${volumeMon} MON`);
+      } catch (dbError: any) {
+        // Ignore duplicate key errors (already recorded)
+        if (!dbError.message?.includes('duplicate')) {
+          console.error('[ROUTES] DB error (continuing):', dbError.message);
+        }
+      }
 
-      console.log(`[ROUTES] Recorded swap to Google Sheets: ${txHash.slice(0, 10)}... volume=${volumeMon} MON`);
+      // Also save to Google Sheets (backup)
+      try {
+        await recordSwapToSheet({
+          txHash,
+          walletAddress,
+          tokenIn,
+          tokenInSymbol: tokenInSymbol || '',
+          tokenOut,
+          tokenOutSymbol: tokenOutSymbol || '',
+          amountIn: amountIn || '0',
+          amountOut: amountOut || '0',
+          volumeMon: volumeMon || '0',
+          dex: dex || 'unknown',
+        });
+      } catch (sheetError) {
+        console.error('[ROUTES] Google Sheets error (continuing):', sheetError);
+      }
+
       res.json({ success: true });
     } catch (error) {
       console.error('[ROUTES] Error recording swap:', error);
@@ -1536,10 +1562,32 @@ export async function registerRoutes(
     }
   });
 
-  // Get leaderboard (top swappers) - GOOGLE SHEETS
+  // Get leaderboard (top swappers) - PostgreSQL primary, Google Sheets fallback
   app.get("/api/leaderboard", async (req, res) => {
     try {
       const limit = parseInt(req.query.limit as string) || 100;
+      
+      // Try PostgreSQL first (primary)
+      try {
+        const [leaderboard, totalVolume, totalSwappers] = await Promise.all([
+          storage.getTopSwappers(limit),
+          storage.getTotalVolume(),
+          storage.getTotalSwappers(),
+        ]);
+        
+        if (leaderboard.length > 0 || totalVolume > 0) {
+          return res.json({
+            leaderboard,
+            totalVolume,
+            totalSwappers,
+            source: 'database',
+          });
+        }
+      } catch (dbError) {
+        console.error('[ROUTES] DB leaderboard error, falling back to Sheets:', dbError);
+      }
+      
+      // Fallback to Google Sheets
       const [leaderboard, stats] = await Promise.all([
         getSwapLeaderboard(limit),
         getSwapStats(),
@@ -1549,6 +1597,7 @@ export async function registerRoutes(
         leaderboard,
         totalVolume: stats.totalVolume,
         totalSwappers: stats.totalSwappers,
+        source: 'sheets',
       });
     } catch (error) {
       console.error('[ROUTES] Error fetching leaderboard:', error);
@@ -1556,14 +1605,33 @@ export async function registerRoutes(
     }
   });
 
-  // Get total stats - GOOGLE SHEETS
+  // Get total stats - PostgreSQL primary, Google Sheets fallback
   app.get("/api/stats", async (req, res) => {
     try {
+      // Try PostgreSQL first
+      try {
+        const [totalVolume, totalSwappers] = await Promise.all([
+          storage.getTotalVolume(),
+          storage.getTotalSwappers(),
+        ]);
+        
+        if (totalVolume > 0 || totalSwappers > 0) {
+          return res.json({
+            totalVolume,
+            totalSwappers,
+            source: 'database',
+          });
+        }
+      } catch (dbError) {
+        console.error('[ROUTES] DB stats error, falling back to Sheets:', dbError);
+      }
+      
+      // Fallback to Google Sheets
       const stats = await getSwapStats();
-
       res.json({
         totalVolume: stats.totalVolume,
         totalSwappers: stats.totalSwappers,
+        source: 'sheets',
       });
     } catch (error) {
       console.error('[ROUTES] Error fetching stats:', error);

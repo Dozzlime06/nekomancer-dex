@@ -371,19 +371,17 @@ export default function Referral() {
                   {stats?.code ? (
                     <div className="space-y-3">
                       <div className="flex items-center gap-2">
-                        <div className="flex-1 bg-white/5 border border-green-500/30 rounded-lg px-4 py-3 font-mono text-xl text-green-400 tracking-widest text-center">
+                        <div className="flex-1 bg-white/5 border border-white/20 rounded-lg px-4 py-3 font-mono text-xl text-white tracking-widest text-center">
                           {stats.code}
                         </div>
                         <button 
                           onClick={copyReferralLink}
-                          className="p-3 bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 rounded-lg transition-colors"
+                          className="p-3 bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg transition-colors"
                           data-testid="button-copy-link"
+                          title="Copy referral link"
                         >
-                          {copied ? <Check className="w-5 h-5 text-green-400" /> : <Copy className="w-5 h-5 text-green-400" />}
+                          {copied ? <Check className="w-5 h-5 text-green-400" /> : <Copy className="w-5 h-5 text-white" />}
                         </button>
-                      </div>
-                      <div className="text-xs text-muted-foreground text-center">
-                        Click to copy: {window.location.origin}/swap?ref={stats.code}
                       </div>
                     </div>
                   ) : (

@@ -502,11 +502,6 @@ export default function Referral() {
                   <span>Claim your MON earnings anytime</span>
                 </div>
               </div>
-              <div className="mt-4 pt-4 border-t border-white/10">
-                <div className="text-xs text-muted-foreground">
-                  <span className="text-primary">Fee Split:</span> 30% Platform • <span className="text-green-400">20% Referrer</span> • 50% Stakers
-                </div>
-              </div>
             </Card>
           </div>
         )}

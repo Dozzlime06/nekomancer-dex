@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Wallet, ArrowDownUp, Lock, Menu, X, LogOut, Trophy, TrendingUp, Users, Medal, Award, Crown } from "lucide-react";
+import { Wallet, ArrowDownUp, Lock, Menu, X, LogOut, Trophy, TrendingUp, Users } from "lucide-react";
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -266,27 +266,15 @@ export default function Leaderboard() {
                       className={`grid grid-cols-12 gap-2 px-4 py-3 border-b border-white/5 hover:bg-white/5 transition-colors ${i < 3 ? 'bg-primary/5' : ''}`}
                     >
                       <div className="col-span-1 flex items-center justify-center">
-                        {i === 0 ? (
-                          <div className="relative">
-                            <Medal className="w-8 h-8 text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.5)]" />
-                            <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-yellow-900 mt-0.5">1</span>
-                          </div>
-                        ) : i === 1 ? (
-                          <div className="relative">
-                            <Medal className="w-8 h-8 text-gray-300 drop-shadow-[0_0_8px_rgba(209,213,219,0.5)]" />
-                            <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-gray-700 mt-0.5">2</span>
-                          </div>
-                        ) : i === 2 ? (
-                          <div className="relative">
-                            <Medal className="w-8 h-8 text-orange-400 drop-shadow-[0_0_8px_rgba(251,146,60,0.5)]" />
-                            <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-orange-900 mt-0.5">3</span>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground font-mono text-sm">{i + 1}</span>
-                        )}
+                        <span className={`font-mono text-sm font-bold ${
+                          i === 0 ? 'text-yellow-400' : 
+                          i === 1 ? 'text-gray-300' : 
+                          i === 2 ? 'text-orange-400' : 
+                          'text-muted-foreground'
+                        }`}>{i + 1}</span>
                       </div>
                       <div className="col-span-5 font-mono text-white text-sm flex items-center">{formatAddress(user.walletAddress)}</div>
-                      <div className="col-span-3 font-mono text-right text-primary flex items-center justify-end">{user.totalVolumeMon.toFixed(2)} MON</div>
+                      <div className="col-span-3 font-mono text-right text-primary flex items-center justify-end whitespace-nowrap text-xs">{user.totalVolumeMon.toFixed(2)} MON</div>
                       <div className="col-span-3 font-mono text-right text-muted-foreground flex items-center justify-end">{user.swapCount}</div>
                     </motion.div>
                   ))
@@ -326,27 +314,15 @@ export default function Leaderboard() {
                       className={`grid grid-cols-12 gap-2 px-4 py-3 border-b border-white/5 hover:bg-white/5 transition-colors ${i < 3 ? 'bg-yellow-500/5' : ''}`}
                     >
                       <div className="col-span-1 flex items-center justify-center">
-                        {i === 0 ? (
-                          <div className="relative">
-                            <Medal className="w-8 h-8 text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.5)]" />
-                            <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-yellow-900 mt-0.5">1</span>
-                          </div>
-                        ) : i === 1 ? (
-                          <div className="relative">
-                            <Medal className="w-8 h-8 text-gray-300 drop-shadow-[0_0_8px_rgba(209,213,219,0.5)]" />
-                            <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-gray-700 mt-0.5">2</span>
-                          </div>
-                        ) : i === 2 ? (
-                          <div className="relative">
-                            <Medal className="w-8 h-8 text-orange-400 drop-shadow-[0_0_8px_rgba(251,146,60,0.5)]" />
-                            <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-orange-900 mt-0.5">3</span>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground font-mono text-sm">{i + 1}</span>
-                        )}
+                        <span className={`font-mono text-sm font-bold ${
+                          i === 0 ? 'text-yellow-400' : 
+                          i === 1 ? 'text-gray-300' : 
+                          i === 2 ? 'text-orange-400' : 
+                          'text-muted-foreground'
+                        }`}>{i + 1}</span>
                       </div>
                       <div className="col-span-5 font-mono text-white text-sm flex items-center">{formatAddress(user.walletAddress)}</div>
-                      <div className="col-span-3 font-mono text-right text-yellow-400 flex items-center justify-end">{user.totalStaked.toFixed(2)}</div>
+                      <div className="col-span-3 font-mono text-right text-yellow-400 flex items-center justify-end whitespace-nowrap">{user.totalStaked.toFixed(2)}</div>
                       <div className="col-span-3 font-mono text-right text-green-400 flex items-center justify-end">{user.stakeCount}</div>
                     </motion.div>
                   ))

@@ -297,7 +297,11 @@ export function getSwapFunctionData(params: SwapParams): { data: `0x${string}`; 
     };
   }
   
-  if (dex === 'nadfun' || (routes.length === 1 && routes[0]?.dexId === 3)) {
+  // Check for Nad.Fun routes (dexId 3 or dex name contains 'nad')
+  const isNadFunRoute = dex.toLowerCase().includes('nad') || 
+                        (routes.length >= 1 && routes.some(r => r.dexId === 3));
+  
+  if (isNadFunRoute) {
     const isBuy = isNativeMON(tokenIn);
     const isSell = isNativeMON(tokenOut) || isWMON(tokenOut);
     const targetToken = isBuy ? tokenOut : tokenIn;

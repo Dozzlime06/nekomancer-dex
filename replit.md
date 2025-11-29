@@ -6,7 +6,9 @@
 - **Proxy (PERMANENT):** `0x6524822e437dcd23d62c77496d7a0ac980fbc81d`
 - **Implementation (V32):** `0x19332B438Da14Ac5537d499d7e279f45C8A476c6`
 - **Upgrade TX:** `0xa008e1b4b911e4438669a9201474756cc11247d69f61f7dbf617bb43ffb900cf`
+- **feeBps Fix TX:** `0x1c7cdfb96e033509a439adfb4601c02c39147df93f522b3752101942faee0016`
 - **Status:** LIVE on Monad Mainnet (Chain 143)
+- **V32 BUG FIX (Nov 29, 2025):** feeBps was corrupted during UUPS upgrade (garbage value causing overflow). Fixed by calling `setFee(100)` to reset to 1%.
 - **V32 NEW FEATURES:**
   1. **ReferralVault Integration:** Referral fees deposited to vault for claiming
   2. **Hardcoded Fee Split:** 30% Platform, 20% Referral (claimable), 50% Staking

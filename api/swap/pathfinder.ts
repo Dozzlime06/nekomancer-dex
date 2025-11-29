@@ -147,14 +147,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const formattedOut = formatUnits(best.amountOut, outDecimals);
     
+    const dexIdMap: Record<string, number> = {
+      'uniswap_v2': 0,
+      'pancakeswap_v2': 1,
+      'uniswap_v3': 2,
+    };
+    
     const route = {
       dex: best.dex,
+      dexId: dexIdMap[best.dex] ?? 0,
+      dexName: best.dex,
       path: best.path,
       percentage: 100,
       amountIn: amountIn.toString(),
       amountOut: formattedOut,
+      expectedOut: best.amountOut.toString(),
       rawAmountOut: best.amountOut.toString(),
       fee: best.fee || 3000,
+      v3Fee: best.fee || 3000,
     };
 
     return res.status(200).json({
@@ -162,7 +172,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       totalAmountOut: best.amountOut.toString(),
       totalMinOut: minAmountOut.toString(),
       bestDex: best.dex,
-      priceImpact: '0.1',
+      bestSingleDex: best.dex,
+      priceImpact: 0.1,
       formattedAmountOut: formattedOut,
     });
   } catch (error: any) {

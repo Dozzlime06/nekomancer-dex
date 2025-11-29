@@ -60,6 +60,14 @@ async function getV2Quote(client: any, router: string, dexName: string, tokenIn:
   return null;
 }
 
+const DEX_DISPLAY_NAMES: Record<string, string> = {
+  'uniswap_v2': 'Uniswap V2',
+  'pancakeswap_v2': 'PancakeSwap V2', 
+  'uniswap_v3': 'Uniswap V3',
+  'wrap': 'Wrap MON',
+  'unwrap': 'Unwrap WMON',
+};
+
 async function getV3Quote(client: any, tokenIn: string, tokenOut: string, amountIn: bigint): Promise<QuoteResult | null> {
   let bestResult: QuoteResult | null = null;
   
@@ -186,15 +194,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       'uniswap_v3': 2,
     };
     
+    const displayName = DEX_DISPLAY_NAMES[best.dex] || best.dex;
+    
     const route = {
-      dex: best.dex,
+      dex: displayName,
       dexId: dexIdMap[best.dex] ?? 0,
-      dexName: best.dex,
+      dexName: displayName,
       path: best.path,
       percentage: 100,
       amountIn: amountIn.toString(),
       amountOut: formattedOut,
       expectedOut: best.amountOut.toString(),
+      minOut: minAmountOut.toString(),
       rawAmountOut: best.amountOut.toString(),
       fee: best.fee || 3000,
       v3Fee: best.fee || 3000,
@@ -204,8 +215,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       routes: [route],
       totalAmountOut: best.amountOut.toString(),
       totalMinOut: minAmountOut.toString(),
-      bestDex: best.dex,
-      bestSingleDex: best.dex,
+      bestDex: displayName,
+      bestSingleDex: displayName,
       priceImpact: 0.1,
       formattedAmountOut: formattedOut,
     });

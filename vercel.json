@@ -5,7 +5,9 @@
     { "source": "/api/tokens", "destination": "/api/tokens" },
     { "source": "/api/quote", "destination": "/api/quote" },
     { "source": "/api/balance", "destination": "/api/balance" },
+    { "source": "/api/leaderboard", "destination": "/api/leaderboard" },
     { "source": "/api/swap/pathfinder", "destination": "/api/swap/pathfinder" },
+    { "source": "/api/swaps/record", "destination": "/api/swaps/record" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

@@ -114,8 +114,41 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     
     const inputAmount = parseUnits(String(amountIn), inDecimals);
     
-    const fromAddr = tokenIn.toLowerCase() === NATIVE_TOKEN.toLowerCase() ? WMON : tokenIn;
-    const toAddr = tokenOut.toLowerCase() === NATIVE_TOKEN.toLowerCase() ? WMON : tokenOut;
+    const isFromNative = tokenIn.toLowerCase() === NATIVE_TOKEN.toLowerCase();
+    const isToNative = tokenOut.toLowerCase() === NATIVE_TOKEN.toLowerCase();
+    const isFromWMON = tokenIn.toLowerCase() === WMON.toLowerCase();
+    const isToWMON = tokenOut.toLowerCase() === WMON.toLowerCase();
+    
+    if ((isFromNative && isToWMON) || (isFromWMON && isToNative)) {
+      const formattedOut = formatUnits(inputAmount, outDecimals);
+      const slippageMultiplier = 10000n - BigInt(slippageBps);
+      const minAmountOut = (inputAmount * slippageMultiplier) / 10000n;
+      
+      return res.status(200).json({
+        routes: [{
+          dex: isFromNative ? 'wrap' : 'unwrap',
+          dexId: 3,
+          dexName: isFromNative ? 'Wrap MON' : 'Unwrap WMON',
+          path: [tokenIn, tokenOut],
+          percentage: 100,
+          amountIn: amountIn.toString(),
+          amountOut: formattedOut,
+          expectedOut: inputAmount.toString(),
+          rawAmountOut: inputAmount.toString(),
+          fee: 0,
+          v3Fee: 0,
+        }],
+        totalAmountOut: inputAmount.toString(),
+        totalMinOut: minAmountOut.toString(),
+        bestDex: isFromNative ? 'wrap' : 'unwrap',
+        bestSingleDex: isFromNative ? 'wrap' : 'unwrap',
+        priceImpact: 0,
+        formattedAmountOut: formattedOut,
+      });
+    }
+    
+    const fromAddr = isFromNative ? WMON : tokenIn;
+    const toAddr = isToNative ? WMON : tokenOut;
 
     const quotes: QuoteResult[] = [];
 

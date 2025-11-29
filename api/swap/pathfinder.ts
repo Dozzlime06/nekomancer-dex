@@ -102,20 +102,26 @@ async function getV3Quote(client: any, tokenIn: string, tokenOut: string, amount
 
 async function getNadFunQuote(client: any, token: string, amountIn: bigint, isBuy: boolean): Promise<QuoteResult | null> {
   try {
-    const [quoteResult, isGraduated] = await Promise.all([
-      client.readContract({
-        address: NADFUN_LENS as `0x${string}`,
-        abi: NADFUN_LENS_ABI,
-        functionName: 'getAmountOut',
-        args: [token as `0x${string}`, amountIn, isBuy],
-      }),
-      client.readContract({
-        address: NADFUN_LENS as `0x${string}`,
-        abi: NADFUN_LENS_ABI,
-        functionName: 'isGraduated',
-        args: [token as `0x${string}`],
-      }).catch(() => false),
-    ]);
+    // First check if token is graduated - graduated tokens use V3, not Nad.Fun bonding
+    const isGraduated = await client.readContract({
+      address: NADFUN_LENS as `0x${string}`,
+      abi: NADFUN_LENS_ABI,
+      functionName: 'isGraduated',
+      args: [token as `0x${string}`],
+    }).catch(() => false);
+    
+    // Skip Nad.Fun for graduated tokens - they should use V3
+    if (isGraduated) {
+      console.log('[NADFUN] Token is graduated, skipping Nad.Fun quote:', token);
+      return null;
+    }
+    
+    const quoteResult = await client.readContract({
+      address: NADFUN_LENS as `0x${string}`,
+      abi: NADFUN_LENS_ABI,
+      functionName: 'getAmountOut',
+      args: [token as `0x${string}`, amountIn, isBuy],
+    });
     
     const amountOut = (quoteResult as any)[1] as bigint;
     if (amountOut > 0n) {
@@ -124,7 +130,7 @@ async function getNadFunQuote(client: any, token: string, amountIn: bigint, isBu
         dexId: 3,
         amountOut,
         path: isBuy ? [WMON, token] : [token, WMON],
-        isGraduated: isGraduated as boolean,
+        isGraduated: false,
       };
     }
   } catch {}
